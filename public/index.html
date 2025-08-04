@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Discord Stats</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .stats-container {
+            margin-top: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f4f4f4;
+        }
+    </style>
+</head>
+<body>
+    <h1>Discord Stats</h1>
+    <div>
+        <label for="guildId">Guild ID:</label>
+        <input type="text" id="guildId">
+        <button onclick="loadGuildStats()">Charger les stats</button>
+    </div>
+    <div class="stats-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Channel</th>
+                    <th>Utilisateur</th>
+                    <th>Messages</th>
+                    <th>Dernière activité</th>
+                </tr>
+            </thead>
+            <tbody id="statsBody">
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        async function loadGuildStats() {
+            const guildId = document.getElementById('guildId').value;
+            if (!guildId) return;
+
+            try {
+                const response = await fetch(`/api/stats/guild/${guildId}`);
+                const stats = await response.json();
+                
+                const tbody = document.getElementById('statsBody');
+                tbody.innerHTML = '';
+                
+                stats.forEach(stat => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${stat.channelId}</td>
+                        <td>${stat.userId}</td>
+                        <td>${stat.messageCount}</td>
+                        <td>${new Date(stat.lastActivity).toLocaleString()}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+    </script>
+</body>
+</html>
