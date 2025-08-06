@@ -1,5 +1,4 @@
 const GuildVoice = require('../models/GuildVoice');
-const statsService = require('../services/statsService');
 
 // Fonction utilitaire pour arrondir une date à la minute
 function roundToMinute(date) {
@@ -98,7 +97,7 @@ exports.recordGuildActivity = async (req, res) => {
         }));
 
         const newSignature = createStateSignature(newChannelsData);
-        const lastRecord = await GuildVoice.findOne({ guildId }).sort({ sessionStart: -1, createdAt: -1 });
+        const lastRecord = await GuildVoice.findOne({ guildId }).sort({ sessionStart: -1 });
 
         // Cas 1 : Il n'y a aucun enregistrement précédent pour ce serveur.
         if (!lastRecord) {
@@ -123,19 +122,6 @@ exports.recordGuildActivity = async (req, res) => {
 
         // L'état a changé. Une connexion ou une déconnexion a eu lieu.
         console.log(`[${guildId}] Changement d'état détecté.`);
-
-        // --- DÉCLENCHEMENT DE LA MISE À JOUR DES STATS ---
-        // On identifie tous les utilisateurs qui étaient dans l'état précédent OU dans le nouvel état.
-        const oldUserIds = lastRecord.channels.flatMap(c => c.members.map(m => m.userId));
-        const newUserIds = newChannelsData.flatMap(c => c.members.map(m => m.userId));
-        // On utilise un Set pour avoir une liste unique d'utilisateurs affectés.
-        const affectedUserIds = [...new Set([...oldUserIds, ...newUserIds])];
-
-        if (affectedUserIds.length > 0) {
-            console.log(`[${guildId}] Déclenchement de la mise à jour des stats pour ${affectedUserIds.length} utilisateur(s) affecté(s).`);
-            // On ne met PAS 'await' ici. La mise à jour se fait en arrière-plan pour ne pas bloquer la réponse.
-            statsService.calculateAndSaveStatsForUsers(guildId, affectedUserIds);
-        }
 
         // On clôture la session précédente car son état est maintenant terminé.
         if (!lastRecord.sessionEnd) {

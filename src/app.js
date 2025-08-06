@@ -3,13 +3,10 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const path = require('path');
-const discordRoutes = require('./routes/discordRoutes');
 const voiceRoutes = require('./routes/voiceRoutes');
-const dashboardRoutes = require('./routes/dashboardRoutes');
-const statsRoutes = require('./routes/statsRoutes');
-const apiKeyAuth = require('./middleware/auth');
+const Discord = require('discord.js');
 const app = express();
-const client = require('./discordClient');
+const { Client, GatewayIntentBits } = require('discord.js');
 
 // Middleware pour le logging des requêtes
 app.use((req, res, next) => {
@@ -23,10 +20,8 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
 
 // Routes
-app.use('/api/discord', apiKeyAuth, discordRoutes);
-app.use('/api/dashboard', dashboardRoutes); // Routes publiques pour le frontend
-app.use('/api/stats', apiKeyAuth, statsRoutes); // Routes protégées pour les actions de stats
-app.use('/api/voice', apiKeyAuth, voiceRoutes);
+app.use('/api/voice', voiceRoutes);
+app.use('/api/stats/voice', voiceRoutes); // Support de l'ancien préfixe
 
 // Serve the frontend
 app.get('/', (req, res) => {
@@ -38,6 +33,15 @@ mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log('Connected to MongoDB'))
     .catch(err => console.error('MongoDB connection error:', err));
 
+// Discord connection
+const client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildMessages
+    ]
+});
+
 client.once('ready', () => {
     console.log(`Logged in as ${client.user.tag}`);
 });
@@ -48,3 +52,5 @@ const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
+
+module.exports = client
