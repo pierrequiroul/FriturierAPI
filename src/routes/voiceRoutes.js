@@ -6,8 +6,7 @@ const voiceController = require('../controllers/voiceController');
 router.get('/guilds', voiceController.getGuildsAndChannels);
 
 // Routes pour l'activité des salons vocaux
-router.post('/:guildId', voiceController.recordActivity);
-router.get('/:guildId/', voiceController.getActivity);
-router.get('/:guildId/:channelId/stats', voiceController.getStats);
+router.post('/:guildId', voiceController.recordGuildActivity);
+router.get('/:guildId/', voiceController.getGuildActivity);
 
 module.exports = router;

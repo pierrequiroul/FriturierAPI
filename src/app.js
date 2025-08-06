@@ -4,9 +4,9 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const path = require('path');
 const voiceRoutes = require('./routes/voiceRoutes');
-
+const Discord = require('discord.js');
 const app = express();
-// const PORT = process.env.PORT || 3001;
+const { Client, GatewayIntentBits } = require('discord.js');
 
 // Middleware pour le logging des requêtes
 app.use((req, res, next) => {
@@ -33,8 +33,24 @@ mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log('Connected to MongoDB'))
     .catch(err => console.error('MongoDB connection error:', err));
 
+// Discord connection
+const client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildMessages
+    ]
+});
+
+client.once('ready', () => {
+    console.log(`Logged in as ${client.user.tag}`);
+});
+client.login(process.env.DISCORD_TOKEN);
+
 // Start server
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
+
+module.exports = client

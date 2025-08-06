@@ -61,10 +61,12 @@ guildVoiceSchema.methods.getChannelMemberCount = function(channelId) {
 // Index pour les requêtes fréquentes
 guildVoiceSchema.index({ guildId: 1, sessionStart: -1 });
 guildVoiceSchema.index({ 'channels.channelId': 1, sessionStart: -1 });
-guildVoiceSchema.index({ sessionStart: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 }); // TTL 30 jours
+// L'index TTL a été commenté pour permettre la conservation de l'historique complet des données.
+// guildVoiceSchema.index({ sessionStart: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 }); // TTL 30 jours
 
 // Forcer la reconstruction des index au démarrage
 const GuildVoice = mongoose.model('GuildVoice', guildVoiceSchema);
-GuildVoice.collection.dropIndexes().catch(console.error);
+// La suppression des index au démarrage est généralement déconseillée en production.
+// GuildVoice.collection.dropIndexes().catch(console.error);
 
 module.exports = GuildVoice;
