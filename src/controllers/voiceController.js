@@ -96,58 +96,53 @@ exports.recordGuildActivity = async (req, res) => {
             }))
         }));
 
+        // Créer la signature du nouvel état pour le comparer à l'ancien
         const newSignature = createStateSignature(newChannelsData);
+
+        // Récupérer le tout dernier enregistrement pour cette guilde pour la comparaison
         const lastRecord = await GuildVoice.findOne({ guildId }).sort({ sessionStart: -1 });
 
-        // Cas 1 : Il n'y a aucun enregistrement précédent pour ce serveur.
-        if (!lastRecord) {
-            const activeChannels = newChannelsData.filter(c => c.members.length > 0);
-            if (activeChannels.length > 0) {
-                const newRecord = await GuildVoice.create({ guildId, sessionStart: now, channels: activeChannels });
-                console.log(`[${guildId}] Première session créée: ${newRecord._id}`);
-                return res.status(201).json(newRecord);
-            } else {
-                return res.status(200).json({ message: 'État initial vide, aucun enregistrement créé.' });
+        // Si un enregistrement précédent existe, on compare les signatures
+        if (lastRecord) {
+            const lastSignature = createStateSignature(lastRecord.channels);
+            if (newSignature === lastSignature) {
+                console.log(`[${guildId}] État inchangé. Pas d'enregistrement.`);
+                return res.status(200).json({ message: 'État inchangé, enregistrement ignoré.', record: lastRecord });
+            }
+
+            // Un changement a été détecté. La session de l'état précédent se termine maintenant.
+            // On met à jour sessionEnd uniquement s'il n'est pas déjà défini, par sécurité.
+            if (!lastRecord.sessionEnd) {
+                lastRecord.sessionEnd = now;
+                await lastRecord.save();
+                console.log(`[${guildId}] Session précédente ${lastRecord._id} fermée à ${now.toISOString()}`);
             }
         }
 
-        // Cas 2 : Un enregistrement précédent existe, on compare les états.
-        const lastSignature = createStateSignature(lastRecord.channels);
-
-        // Si l'état n'a pas changé, on ne fait rien.
-        if (newSignature === lastSignature) {
-            console.log(`[${guildId}] État inchangé. Pas d'enregistrement.`);
-            return res.status(200).json({ message: 'État inchangé, enregistrement ignoré.', record: lastRecord });
-        }
-
-        // L'état a changé. Une connexion ou une déconnexion a eu lieu.
-        console.log(`[${guildId}] Changement d'état détecté.`);
-
-        // On clôture la session précédente car son état est maintenant terminé.
-        if (!lastRecord.sessionEnd) {
-            lastRecord.sessionEnd = now;
-            await lastRecord.save();
-            console.log(`[${guildId}] Session précédente ${lastRecord._id} fermée à ${now.toISOString()}`);
-        }
-
-        // On vérifie s'il reste une activité pour décider de créer une nouvelle session.
+        // On ne crée une nouvelle session que si le nouvel état n'est pas vide.
         const activeChannels = newChannelsData.filter(c => c.members.length > 0);
-
         if (activeChannels.length > 0) {
-            // Règle 1 & 2 : Il y a encore des membres, on crée un nouveau document pour le nouvel état.
-            const newRecord = await GuildVoice.create({ guildId, sessionStart: now, channels: activeChannels });
-            console.log(`[${guildId}] Nouvelle session créée pour le nouvel état: ${newRecord._id}`);
-            return res.status(201).json(newRecord);
+            // Si l'état est nouveau (pas de lastRecord ou signatures différentes), on crée un nouvel enregistrement.
+            const newRecord = await GuildVoice.create({
+                guildId,
+                sessionStart: now,
+                channels: activeChannels
+            });
+
+            console.log(`[${guildId}] Nouvel état détecté. Enregistrement créé: ${newRecord._id}`);
+            res.status(201).json(newRecord);
         } else {
-            // Règle 3 : Plus personne n'est connecté. La clôture de la session précédente est suffisante.
+            // Tous les canaux sont maintenant vides. La fin de la session précédente suffit.
             console.log(`[${guildId}] Tous les canaux sont vides. Aucune nouvelle session créée.`);
-            return res.status(200).json({ message: 'Tous les canaux sont vides, la session précédente a été fermée.' });
+            res.status(200).json({ message: 'Tous les canaux sont vides, la session précédente a été fermée.' });
         }
     } catch (error) {
         console.error('Erreur lors de l\'enregistrement de l\'activité:', error);
         res.status(500).json({ error: 'Erreur interne du serveur.' });
     }
 };
+
+
 
 // Obtenir l'activité d'un salon vocal
 exports.getGuildActivity = async (req, res) => {
