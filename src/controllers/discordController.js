@@ -1,4 +1,4 @@
-const client = require('../discordClient');
+const client = require('../services/discordClient');
 
 /**
  * Récupère les informations d'un utilisateur d'une guilde spécifique et les formate pour l'API.

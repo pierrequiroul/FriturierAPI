@@ -1,6 +1,6 @@
 const GuildVoice = require('../models/GuildVoice');
 const UserStats = require('../models/UserStats');
-const client = require('../discordClient');
+const client = require('./discordClient');
 const { calculateOverlap } = require('../utils/timeUtils');
 
 /**

@@ -9,7 +9,7 @@ const dashboardRoutes = require('./routes/dashboardRoutes');
 const statsRoutes = require('./routes/statsRoutes');
 const apiKeyAuth = require('./middleware/auth');
 const app = express();
-const client = require('./discordClient');
+const client = require('./services/discordClient');
 
 // Middleware pour le logging des requêtes
 app.use((req, res, next) => {
