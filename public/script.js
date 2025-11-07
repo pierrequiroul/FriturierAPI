@@ -1,8 +1,82 @@
     // --- CONFIGURATION ---
-        const API_BASE_URL = '/api'; // Utilise un chemin relatif pour que le frontend appelle le backend qui le sert.
-        const GUILD_ID = '355051708503687168'; // Remplacez par un ID de serveur pour les tests
+    const API_BASE_URL = '/api'; // Utilise un chemin relatif pour que le frontend appelle le backend qui le sert.
+    const GUILD_ID = '355051708503687168'; // Remplacez par un ID de serveur pour les tests
+
+    // Fonction pour vérifier si le token est présent et valide
+    function getAuthToken() {
+        const token = localStorage.getItem('token');
+        console.log('Token dans le localStorage:', token ? 'Présent' : 'Absent');
+        return token;
+    }
+
+    // Fonction pour faire des requêtes authentifiées
+    async function makeFetchRequest(url, options = {}) {
+        const token = getAuthToken();
+        if (!token) {
+            console.log('Pas de token trouvé, redirection vers login');
+            window.location.href = '/login.html';
+            return null;
+        }
+
+        const headers = {
+            ...options.headers,
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+        };
         
-        // Configuration personnalisée pour l'ordre et les couleurs des canaux
+        try {
+            console.log('Envoi requête authentifiée à:', url);
+            const response = await fetch(url, { ...options, headers });
+            
+            if (response.status === 401) {
+                console.log('Token invalide ou expiré');
+                localStorage.removeItem('token');
+                window.location.href = '/login.html';
+                return null;
+            }
+            return response;
+        } catch (error) {
+            console.error('Erreur réseau:', error);
+            throw error;
+        }
+    }
+
+    // Vérification de l'authentification au chargement de la page
+    async function checkAuthentication() {
+        console.log('Vérification de l\'authentification...');
+        const token = getAuthToken();
+        const currentPath = window.location.pathname;
+        
+        if (currentPath === '/login.html') {
+            console.log('Page de login, pas de vérification nécessaire');
+            return;
+        }
+
+        if (!token) {
+            console.log('Pas de token, redirection vers login');
+            window.location.href = '/login.html';
+            return;
+        }
+
+        try {
+            console.log('Test de validité du token...');
+            // Use guilds activity endpoint as a health check
+            const response = await makeFetchRequest(`${API_BASE_URL}/dashboard/guilds/${GUILD_ID}/activity`);
+            if (!response || !response.ok) {
+                throw new Error('Token invalide');
+            }
+            console.log('Token valide, accès autorisé');
+        } catch (error) {
+            console.error('Erreur d\'authentification:', error);
+            localStorage.removeItem('token');
+            window.location.href = '/login.html';
+        }
+    }
+
+    // Vérifie l'authentification au chargement
+    window.addEventListener('load', checkAuthentication);
+        
+    // Configuration personnalisée pour l'ordre et les couleurs des canaux
         const CHANNEL_ORDER = [
             '355052157709320193', '959744073634304020', '1356734541787697314', '1224975207396151316',
             '797014090488872989', '1399789953700991047', '893642766184247296', '1358552538160562497',
@@ -177,7 +251,7 @@
                 url += `?start=${startDate.toISOString()}&end=${endDate.toISOString()}`;
             }
             try {
-                const response = await fetch(url);
+                const response = await makeFetchRequest(url);
                 if (!response.ok) {
                     throw new Error(`Erreur API: ${response.statusText}`);
                 }
@@ -469,7 +543,7 @@
             const userIds = users.map(u => u.id);
 
             try {
-                const response = await fetch(`${API_BASE_URL}/dashboard/guilds/${GUILD_ID}/users/bulk`, {
+                const response = await makeFetchRequest(`${API_BASE_URL}/dashboard/guilds/${GUILD_ID}/users/bulk`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -754,7 +828,7 @@ async function updateUserChartFor(userIds) {
             container.innerHTML = `<div class="loading">Chargement des statistiques...</div>`;
 
             try {
-                const response = await fetch(`${API_BASE_URL}/dashboard/guilds/${GUILD_ID}/users/${userId}/stats`);
+                const response = await makeFetchRequest(`${API_BASE_URL}/dashboard/guilds/${GUILD_ID}/users/${userId}/stats`);
                 if (!response.ok) {
                     container.innerHTML = `<div class="error">Impossible de charger les statistiques pour cet utilisateur. Les données ne sont peut-être pas encore calculées.</div>`;
                     return;
@@ -839,7 +913,7 @@ async function updateUserChartFor(userIds) {
                     const allRelevantChannelIds = [...new Set([...allChannelIdsInData, ...CHANNEL_ORDER])];
                     let freshChannelNamesMap = new Map();
                     try {
-                        const freshChannelDetails = await fetch(`${API_BASE_URL}/dashboard/guilds/${GUILD_ID}/channels/bulk`, {
+                        const freshChannelDetails = await makeFetchRequest(`${API_BASE_URL}/dashboard/guilds/${GUILD_ID}/channels/bulk`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ channelIds: allRelevantChannelIds }),
@@ -970,7 +1044,7 @@ async function updateUserChartFor(userIds) {
 
                 try {
                     // This endpoint should be routed to userStatsController.updateAllUserStats
-                    const response = await fetch(`${API_BASE_URL}/dashboard/guilds/${GUILD_ID}/stats/update`, {
+                    const response = await makeFetchRequest(`${API_BASE_URL}/dashboard/guilds/${GUILD_ID}/stats/update`, {
                         method: 'POST'
                     });
 
