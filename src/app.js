@@ -7,7 +7,9 @@ const discordRoutes = require('./routes/discordRoutes');
 const voiceRoutes = require('./routes/voiceRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const statsRoutes = require('./routes/statsRoutes');
+const authRoutes = require('./routes/authRoutes');
 const apiKeyAuth = require('./middleware/auth');
+const checkAuth = require('./middleware/checkAuth');
 const app = express();
 const client = require('./services/discordClient');
 
@@ -18,15 +20,32 @@ app.use((req, res, next) => {
 });
 
 // Middleware standard
-app.use(cors());
+app.use(cors({
+    origin: true,
+    credentials: true
+}));
 app.use(express.json());
+
+// Servir les fichiers statiques avant toute autre route
 app.use(express.static(path.join(__dirname, '../public')));
 
-// Routes
-app.use('/api/discord', apiKeyAuth, discordRoutes);
-app.use('/api/dashboard', dashboardRoutes); // Routes publiques pour le frontend
-app.use('/api/stats', apiKeyAuth, statsRoutes); // Routes protégées pour les actions de stats
-app.use('/api/voice', apiKeyAuth, voiceRoutes);
+// Routes d'authentification (publiques)
+app.use('/api/auth', authRoutes);
+
+// Middleware d'authentification pour les autres routes API
+app.use('/api', (req, res, next) => {
+    if (req.path === '/auth/login') {
+        return next();
+    }
+    checkAuth(req, res, next);
+});
+
+// Routes protégées par authentification
+app.use('/api/dashboard', checkAuth, dashboardRoutes);
+app.use('/api/user', checkAuth, statsRoutes);
+app.use('/api/voice', checkAuth, voiceRoutes);
+//app.use('/api/text', textRoutes); //TO-DO
+app.use('/api/discord', checkAuth, discordRoutes);
 
 // Serve the frontend
 app.get('/', (req, res) => {

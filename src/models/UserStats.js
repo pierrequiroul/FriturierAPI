@@ -3,7 +3,6 @@ const mongoose = require('mongoose');
 const friendSchema = new mongoose.Schema({
     userId: { type: String, required: true },
     username: { type: String, required: true },
-    avatar: { type: String },
     timeSpentTogether: { type: Number, default: 0 }
 }, { _id: false });
 
