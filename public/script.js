@@ -98,8 +98,10 @@
         let rawApiData = []; // Pour stocker les données brutes de l'API
         let allChannels = []; // Pour stocker la liste de tous les canaux uniques
         let selectedUserIds = []; // Pour stocker les IDs des utilisateurs sélectionnés
-
-        // --- GRAPHIQUES APEXCHARTS (Initialisation avec des données vides) ---
+        // États d'affichage
+        let overviewWindow = 'month'; // '24h' | 'week' | 'month'
+        let userWindow = 'month';     // '24h' | 'week' | 'month'
+        let dashboardMinTs = null;    // timestamp du 1er point de données (overview)        // --- GRAPHIQUES APEXCHARTS (Initialisation avec des données vides) ---
         const overviewChartOptions = {
             chart: {
                 id: 'overviewChartMain',
@@ -199,23 +201,47 @@
                 // Les catégories seront définies dynamiquement
             },
             tooltip: {
-                x: { format: 'dd MMM HH:mm' },
-                y: {
-                    formatter: function(val, opts) {
-                        const start = new Date(val[0]);
-                        const end = new Date(val[1]);
-                        const durationMs = end - start;
-                        
+                custom: function({ seriesIndex, dataPointIndex, w }) {
+                    try {
+                        const s = w.config.series[seriesIndex];
+                        const point = s.data[dataPointIndex] || {};
+                        let startMs, endMs;
+
+                        if (point && Array.isArray(point.y)) {
+                            [startMs, endMs] = point.y;
+                        } else if (w.globals && w.globals.seriesRangeStart && w.globals.seriesRangeEnd) {
+                            startMs = w.globals.seriesRangeStart[seriesIndex]?.[dataPointIndex];
+                            endMs = w.globals.seriesRangeEnd[seriesIndex]?.[dataPointIndex];
+                        }
+
+                        if (!startMs || !endMs) {
+                            return '';
+                        }
+
+                        const durationMs = Math.max(0, endMs - startMs);
                         const hours = Math.floor(durationMs / 3600000);
                         const minutes = Math.floor((durationMs % 3600000) / 60000);
-                        
                         let durationStr = '';
                         if (hours > 0) durationStr += `${hours}h `;
                         if (minutes > 0) durationStr += `${minutes}min`;
                         if (durationStr === '' && durationMs > 0) durationStr = '< 1min';
-                        if (durationStr === '') return 'Instant';
+                        if (durationStr === '') durationStr = 'Instant';
 
-                        return `Durée: ${durationStr.trim()}`;
+                        const userLabel = typeof point.x === 'string' ? point.x : '';
+                        const channelName = s && s.name ? s.name : '';
+                        const startStr = new Date(startMs).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+                        const endStr = new Date(endMs).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+                        return `
+                          <div class="apexcharts-tooltip-range">
+                            <div><strong>${userLabel}</strong>${channelName ? ` — ${channelName}` : ''}</div>
+                            <div>${startStr} → ${endStr}</div>
+                            <div>Durée: ${durationStr.trim()}</div>
+                          </div>
+                        `;
+                    } catch (e) {
+                        console.warn('Tooltip render error:', e);
+                        return '';
                     }
                 }
             },
@@ -670,14 +696,18 @@
 async function fetchUserDetails(userIds) {
     const userDetailsMap = new Map();
     try {
-        const response = await fetch(`${API_BASE_URL}/dashboard/guilds/${GUILD_ID}/users/bulk`, {
+        // Utiliser la requête authentifiée pour éviter le fallback 'User 123'
+        const response = await makeFetchRequest(`${API_BASE_URL}/dashboard/guilds/${GUILD_ID}/users/bulk`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ userIds }),
         });
-        if (response.ok) {
+        if (response && response.ok) {
             const users = await response.json();
-            users.forEach(u => userDetailsMap.set(u.id, u.nickname || u.username));
+            users.forEach(u => {
+                const displayName = u.nickname || u.username || `Utilisateur ${u.id.slice(-4)}`;
+                userDetailsMap.set(u.id, displayName);
+            });
         }
     } catch (err) {
         console.error("Failed to fetch user details for chart series", err);
@@ -685,7 +715,7 @@ async function fetchUserDetails(userIds) {
     // Fallback pour les utilisateurs non trouvés dans la réponse API
     userIds.forEach(id => {
         if (!userDetailsMap.has(id)) {
-            userDetailsMap.set(id, `User ${id.slice(-4)}`);
+            userDetailsMap.set(id, `Utilisateur ${id.slice(-4)}`);
         }
     });
     return userDetailsMap;
@@ -752,7 +782,8 @@ function processUserActivity(userIds, selectedUsersMap) {
 
     // Construire les données de série finales à partir des sessions fusionnées
     userSessionStates.forEach((state, userId) => {
-        const userName = selectedUsersMap.get(userId);
+        // Utiliser le vrai nom récupéré, sinon fallback plus explicite
+        const resolvedUserName = selectedUsersMap.get(userId) || `Utilisateur ${userId.slice(-4)}`;
         state.mergedSessions.forEach(session => {
             const channelInfo = allChannels.find(c => c.id === session.channelId);
             if (channelInfo) {
@@ -763,8 +794,9 @@ function processUserActivity(userIds, selectedUsersMap) {
                     });
                 }
                 seriesDataMap.get(channelInfo.id).data.push({
-                    x: userName,
-                    y: [session.startTime, session.endTime]
+                    x: resolvedUserName,
+                    y: [session.startTime, session.endTime],
+                    _meta: { userId } // conserve l'ID pour un usage futur (tooltip avancé, etc.)
                 });
             }
         });
@@ -784,7 +816,16 @@ async function updateUserChartFor(userIds) {
     }
 
     const now = new Date().getTime();
-    const twentyFourHoursAgo = now - (24 * 60 * 60 * 1000);
+    // Fenêtre selon le bouton actif
+    let windowMs;
+    if (userWindow === '24h') {
+        windowMs = 24 * 60 * 60 * 1000;
+    } else if (userWindow === 'week') {
+        windowMs = 7 * 24 * 60 * 60 * 1000;
+    } else {
+        windowMs = 30 * 24 * 60 * 60 * 1000;
+    }
+    const windowStart = now - windowMs;
 
     // 1. Récupérer les détails des utilisateurs (noms)
     const selectedUsersMap = await fetchUserDetails(userIds);
@@ -795,14 +836,15 @@ async function updateUserChartFor(userIds) {
     // 3. Formater les données pour ApexCharts
     const finalSeries = Array.from(seriesDataMap.values());
     const finalColors = Array.from(seriesDataMap.keys()).map(channelId => CHANNEL_COLORS[channelId] || '#9E9E9E');
-    const yAxisCategories = Array.from(selectedUsersMap.values());
+    // Y Axis categories: conserver l'ordre des userIds fournis, en mappant vers le nom résolu
+    const yAxisCategories = userIds.map(id => selectedUsersMap.get(id) || `Utilisateur ${id.slice(-4)}`);
 
-    // 4. Générer les annotations pour la vue de 24h
-    const userAnnotations = generateAnnotations(new Date(twentyFourHoursAgo), new Date(now));
+    // 4. Générer les annotations pour la fenêtre choisie
+    const userAnnotations = generateAnnotations(new Date(windowStart), new Date(now));
 
     // 5. Mettre à jour le graphique
     userChart.updateOptions({
-        xaxis: { min: twentyFourHoursAgo, max: now },
+        xaxis: { min: windowStart, max: now },
         yaxis: {
             categories: yAxisCategories,
             reversed: false // Les utilisateurs sont listés de haut en bas
@@ -963,28 +1005,24 @@ async function updateUserChartFor(userIds) {
                     // Trouver les dates min et max dans les données pour définir la sélection initiale
                     const timestamps = rawApiData.map(d => new Date(d.sessionStart).getTime());
                     const minDate = new Date(Math.min(...timestamps));
+                    dashboardMinTs = minDate.getTime();
 
                     // Générer les annotations pour les graphiques principaux
                     const mainAnnotations = generateAnnotations(minDate, new Date(now));
+                    // Applique les annotations sur le principal
                     overviewChart.updateOptions({ annotations: mainAnnotations });
 
-                                        // Mettre à jour le graphique brush avec la plage de dates complète et la sélection.
-                    // On fait tout dans une seule mise à jour pour éviter les problèmes de synchronisation.
+                    // Mettre à jour le graphique brush avec la plage de dates complète
                     overviewChartBrush.updateOptions({
                         xaxis: {
-                            min: minDate.getTime(), // Définit la plage totale de l'axe
+                            min: dashboardMinTs,
                             max: now
                         },
-                        chart: {
-                            selection: {
-                                xaxis: {
-                                    min: minDate.getTime(), // La sélection initiale couvre tout
-                                    max: now
-                            }
-                        }
-                    },
-                    annotations: mainAnnotations
-                });
+                        annotations: mainAnnotations
+                    });
+
+                    // Appliquer la fenêtre par défaut (mois) sur les deux graphs overview
+                    applyOverviewWindow();
                 } else {
                     overviewChart.updateOptions({ noData: { text: 'Aucune donnée à afficher pour cette période.' } });
                     document.getElementById('usersList').innerHTML = `<p style="color: var(--text-secondary); padding: 15px;">Aucun utilisateur actif trouvé.</p>`;
@@ -1003,6 +1041,86 @@ async function updateUserChartFor(userIds) {
         }
 
         // --- ÉCOUTEURS D'ÉVÉNEMENTS ---
+        // Helpers pour appliquer les fenêtres
+        function applyOverviewWindow() {
+            if (!dashboardMinTs) return;
+            const nowTs = Date.now();
+            let winMs;
+            if (overviewWindow === '24h') {
+                winMs = 24 * 60 * 60 * 1000;
+            } else if (overviewWindow === 'week') {
+                winMs = 7 * 24 * 60 * 60 * 1000;
+            } else {
+                winMs = 30 * 24 * 60 * 60 * 1000;
+            }
+            const desiredMin = nowTs - winMs;
+            const minTs = Math.max(dashboardMinTs, desiredMin);
+
+            const annotations = generateAnnotations(new Date(minTs), new Date(nowTs));
+
+            // Met à jour le graphique principal (zoom sur la fenêtre)
+            overviewChart.updateOptions({
+                xaxis: { min: minTs, max: nowTs },
+                annotations
+            });
+            // Met à jour la sélection de la brush pour refléter la fenêtre
+            overviewChartBrush.updateOptions({
+                chart: {
+                    selection: {
+                        xaxis: { min: minTs, max: nowTs }
+                    }
+                }
+            });
+        }
+
+        function setActive(btnOn, btnOff1, btnOff2) {
+            if (btnOn) btnOn.classList.add('active');
+            if (btnOff1) btnOff1.classList.remove('active');
+            if (btnOff2) btnOff2.classList.remove('active');
+        }
+
+        const overview24hBtn = document.getElementById('overview24hBtn');
+        const overviewWeekBtn = document.getElementById('overviewWeekBtn');
+        const overviewMonthBtn = document.getElementById('overviewMonthBtn');
+        if (overview24hBtn && overviewWeekBtn && overviewMonthBtn) {
+            overview24hBtn.addEventListener('click', () => {
+                overviewWindow = '24h';
+                setActive(overview24hBtn, overviewWeekBtn, overviewMonthBtn);
+                applyOverviewWindow();
+            });
+            overviewWeekBtn.addEventListener('click', () => {
+                overviewWindow = 'week';
+                setActive(overviewWeekBtn, overview24hBtn, overviewMonthBtn);
+                applyOverviewWindow();
+            });
+            overviewMonthBtn.addEventListener('click', () => {
+                overviewWindow = 'month';
+                setActive(overviewMonthBtn, overview24hBtn, overviewWeekBtn);
+                applyOverviewWindow();
+            });
+        }
+
+        const user24hBtn = document.getElementById('user24hBtn');
+        const userWeekBtn = document.getElementById('userWeekBtn');
+        const userMonthBtn = document.getElementById('userMonthBtn');
+        if (user24hBtn && userWeekBtn && userMonthBtn) {
+            user24hBtn.addEventListener('click', () => {
+                userWindow = '24h';
+                setActive(user24hBtn, userWeekBtn, userMonthBtn);
+                updateUserChartFor(selectedUserIds);
+            });
+            userWeekBtn.addEventListener('click', () => {
+                userWindow = 'week';
+                setActive(userWeekBtn, user24hBtn, userMonthBtn);
+                updateUserChartFor(selectedUserIds);
+            });
+            userMonthBtn.addEventListener('click', () => {
+                userWindow = 'month';
+                setActive(userMonthBtn, user24hBtn, userWeekBtn);
+                updateUserChartFor(selectedUserIds);
+            });
+        }
+
         document.getElementById('usersList').addEventListener('click', (e) => {
             const clickedButton = e.target.closest('.channel-card');
             if (clickedButton) {
