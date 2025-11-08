@@ -87,7 +87,12 @@ exports.recordGuildActivity = async (req, res) => {
             const hasApiKey = !!(req.headers['x-api-key'] || req.headers['X-API-KEY']);
             const expectedKey = process.env.STATS_API_KEY;
             const apiKeyMatches = hasApiKey && expectedKey && (req.headers['x-api-key'] === expectedKey || req.headers['X-API-KEY'] === expectedKey);
-            console.log(`[voice] ${req.method} /api/voice/${guildId} - channels:${Array.isArray(channels)?channels.length:0} - x-api-key present:${hasApiKey} matches:${apiKeyMatches}`);
+            // Utiliser req.originalUrl uniquement à titre informatif, ne jamais influencer la logique.
+            // Si originalUrl est anormalement vide, on reconstruit un affichage basique.
+            const urlDisplay = req.originalUrl && typeof req.originalUrl === 'string'
+                ? req.originalUrl
+                : `/api/voice/${guildId}`;
+            console.log(`[voice] ${req.method} ${urlDisplay} channels=${Array.isArray(channels)?channels.length:0} apiKeyPresent=${hasApiKey} apiKeyMatches=${apiKeyMatches}`);
         } catch (err) {
             console.log('[voice] Failed to log request headers', err);
         }
@@ -113,6 +118,17 @@ exports.recordGuildActivity = async (req, res) => {
         if (!lastRecord) {
             const activeChannels = newChannelsData.filter(c => c.members.length > 0);
             if (activeChannels.length > 0) {
+                // Déclencher la mise à jour des stats pour tous les utilisateurs actuellement présents
+                const presentUserIds = [...new Set(activeChannels.flatMap(c => c.members.map(m => m.userId)))];
+                if (presentUserIds.length > 0) {
+                    try {
+                        // Pas d'attente: traitement en arrière-plan
+                        statsService.calculateAndSaveStatsForUsers(guildId, presentUserIds);
+                    } catch (err) {
+                        console.warn(`[${guildId}] Échec déclenchement update stats (premier enregistrement):`, err);
+                    }
+                }
+
                 const newRecord = await GuildVoice.create({ guildId, sessionStart: now, channels: activeChannels });
                 console.log(`[${guildId}] Première session créée: ${newRecord._id}`);
                 return res.status(201).json(newRecord);
@@ -124,10 +140,21 @@ exports.recordGuildActivity = async (req, res) => {
         // Cas 2 : Un enregistrement précédent existe, on compare les états.
         const lastSignature = createStateSignature(lastRecord.channels);
 
-        // Si l'état n'a pas changé, on ne fait rien.
+        // Si l'état n'a pas changé, on met tout de même à jour les stats des utilisateurs présents
         if (newSignature === lastSignature) {
-            console.log(`[${guildId}] État inchangé. Pas d'enregistrement.`);
-            return res.status(200).json({ message: 'État inchangé, enregistrement ignoré.', record: lastRecord });
+            try {
+                const presentUserIds = [...new Set(newChannelsData.flatMap(c => c.members.map(m => m.userId)))];
+                if (presentUserIds.length > 0) {
+                    // Mise à jour en arrière-plan (les sessions en cours seront comptées jusqu'à "now")
+                    statsService.calculateAndSaveStatsForUsers(guildId, presentUserIds);
+                    console.log(`[${guildId}] État inchangé. Stats mises à jour pour ${presentUserIds.length} utilisateur(s).`);
+                } else {
+                    console.log(`[${guildId}] État inchangé. Aucun utilisateur présent, pas de mise à jour des stats.`);
+                }
+            } catch (err) {
+                console.warn(`[${guildId}] Échec mise à jour des stats (état inchangé):`, err);
+            }
+            return res.status(200).json({ message: 'État inchangé, stats mises à jour.', record: lastRecord });
         }
 
         // L'état a changé. Une connexion ou une déconnexion a eu lieu.
