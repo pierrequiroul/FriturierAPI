@@ -568,3 +568,406 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+/* ============================================
+   USER PROFILE PANEL STYLES
+   ============================================ */
+.user-profile-panel {
+    margin-top: 30px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+    animation: slideIn 0.4s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.profile-panel-content {
+    background: white;
+    margin: 3px;
+    border-radius: 14px;
+    overflow: hidden;
+}
+
+/* Profile Header */
+.profile-header {
+    position: relative;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 60px 40px 30px;
+    color: white;
+}
+
+.close-profile-btn {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 1.2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s;
+    backdrop-filter: blur(10px);
+}
+
+.close-profile-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: rotate(90deg);
+}
+
+.profile-banner {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 120px;
+    overflow: hidden;
+}
+
+.profile-decoration {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.3;
+}
+
+.profile-info {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 25px;
+}
+
+.profile-avatar {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    border: 5px solid white;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    object-fit: cover;
+}
+
+.profile-details {
+    flex: 1;
+}
+
+.profile-nickname {
+    font-size: 2rem;
+    font-weight: 700;
+    margin: 0 0 5px 0;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.profile-username {
+    font-size: 1.1rem;
+    opacity: 0.9;
+    margin: 0 0 10px 0;
+}
+
+.bot-badge {
+    display: inline-block;
+    background: rgba(255, 255, 255, 0.25);
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-top: 8px;
+    backdrop-filter: blur(10px);
+}
+
+.bot-badge i {
+    margin-right: 5px;
+}
+
+.profile-last-update {
+    font-size: 0.9rem;
+    opacity: 0.8;
+    margin-top: 10px;
+}
+
+.profile-last-update i {
+    margin-right: 5px;
+}
+
+/* Periods Grid */
+.periods-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 25px;
+    padding: 30px;
+    background: #f8f9fa;
+}
+
+.period-card {
+    background: white;
+    border-radius: 12px;
+    padding: 25px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    transition: all 0.3s;
+    border: 2px solid transparent;
+}
+
+.period-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+    border-color: #667eea;
+}
+
+.period-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #f0f0f0;
+}
+
+.period-icon {
+    font-size: 2rem;
+}
+
+.period-title {
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+/* Period Stats */
+.period-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    margin-bottom: 25px;
+}
+
+.stat-box {
+    background: linear-gradient(135deg, #f6f8fb 0%, #f0f2f5 100%);
+    padding: 18px;
+    border-radius: 10px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+}
+
+.stat-box::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, #667eea, #764ba2);
+}
+
+.stat-label {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    display: block;
+}
+
+.stat-value {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    display: block;
+}
+
+.stat-primary {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.stat-secondary {
+    color: #f64e60;
+}
+
+.stat-percent {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    margin-top: 5px;
+    font-weight: 500;
+}
+
+/* Friends Section */
+.friends-section {
+    margin-top: 20px;
+}
+
+.friends-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 15px;
+    padding-left: 10px;
+    border-left: 4px solid #667eea;
+}
+
+.friends-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.friend-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    transition: all 0.2s;
+    border: 1px solid #e9ecef;
+}
+
+.friend-card:hover {
+    background: #e9ecef;
+    transform: translateX(5px);
+}
+
+.friend-rank {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #667eea;
+    min-width: 35px;
+    text-align: center;
+}
+
+.friend-avatar {
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid white;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.friend-info {
+    flex: 1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.friend-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.95rem;
+}
+
+.friend-time {
+    font-weight: 700;
+    color: #667eea;
+    font-size: 0.9rem;
+    padding: 4px 12px;
+    background: rgba(102, 126, 234, 0.1);
+    border-radius: 20px;
+}
+
+.no-friends {
+    text-align: center;
+    padding: 30px;
+    color: var(--text-secondary);
+}
+
+.no-friends i {
+    font-size: 3rem;
+    opacity: 0.3;
+    margin-bottom: 10px;
+}
+
+.no-friends p {
+    margin: 0;
+    font-size: 0.95rem;
+}
+
+/* Responsive Design */
+@media (max-width: 1400px) {
+    .periods-grid {
+        grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    }
+}
+
+@media (max-width: 768px) {
+    .periods-grid {
+        grid-template-columns: 1fr;
+        padding: 20px;
+    }
+
+    .profile-header {
+        padding: 40px 20px 20px;
+    }
+
+    .profile-info {
+        flex-direction: column;
+        text-align: center;
+    }
+
+    .profile-nickname {
+        font-size: 1.5rem;
+    }
+
+    .period-stats {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Enhanced Loading and Error States for Profile Panel */
+.user-profile-panel .loading {
+    text-align: center;
+    padding: 80px 40px;
+    color: #667eea;
+    font-size: 1.1rem;
+    background: white;
+    border-radius: 14px;
+    margin: 3px;
+}
+
+.user-profile-panel .loading i {
+    font-size: 3rem;
+    margin-bottom: 20px;
+    display: block;
+}
+
+.user-profile-panel .error {
+    background: white;
+    border-radius: 14px;
+    margin: 3px;
+    padding: 60px 40px;
+    text-align: center;
+}
+
+.user-profile-panel .error i {
+    font-size: 4rem;
+    color: #f64e60;
+    margin-bottom: 20px;
+    display: block;
+}
+
+.user-profile-panel .error p {
+    color: var(--text-primary);
+    font-size: 1.1rem;
+    margin: 0;
+    line-height: 1.6;
+}

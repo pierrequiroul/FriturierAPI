@@ -97,18 +97,85 @@ exports.recordUserStats = async (req, res) => {
 };
 /**
  * Récupère les statistiques pré-calculées d'un utilisateur.
+ * Si les stats n'existent pas, déclenche leur calcul et réessaye.
  */
 exports.getUserStats = async (req, res) => {
     try {
         const { guildId, userId } = req.params;
-        const userStats = await UserStats.findOne({ guildId, userId });
+        
+        // Log d'entrée très visible
+        console.log('\n========================================');
+        console.log(`📊 [getUserStats] START`);
+        console.log(`   Guild: ${guildId}`);
+        console.log(`   User:  ${userId}`);
+        console.log('========================================\n');
+        
+        let userStats = await UserStats.findOne({ guildId, userId });
+        
         if (!userStats) {
-            return res.status(404).json({ message: 'Aucune statistique trouvée pour cet utilisateur.' });
+            console.log(`⚠️  [getUserStats] Stats non trouvées pour userId=${userId} dans guildId=${guildId}. Vérification de l'activité...`);
+            
+            // Vérifier si l'utilisateur a au moins une session enregistrée dans GuildVoice
+            // On cherche dans le tableau channels, puis dans le sous-tableau members
+            const activityCheck = await GuildVoice.findOne({ 
+                guildId, 
+                'channels.members.userId': userId 
+            });
+            
+            console.log(`🔍 [getUserStats] Activité trouvée: ${activityCheck ? '✅ OUI' : '❌ NON'}`);
+            
+            if (!activityCheck) {
+                // Double vérification avec une requête plus permissive
+                const anyActivity = await GuildVoice.countDocuments({ 
+                    guildId, 
+                    'channels.members.userId': userId 
+                });
+                
+                console.log(`🔍 [getUserStats] Double check - Nombre de sessions trouvées: ${anyActivity}`);
+                
+                if (anyActivity === 0) {
+                    console.log(`❌ [getUserStats] AUCUNE ACTIVITÉ - Retour 404\n`);
+                    return res.status(404).json({ 
+                        message: 'Aucune activité vocale enregistrée pour cet utilisateur.' 
+                    });
+                }
+            }
+            
+            // L'utilisateur a de l'activité, on calcule ses stats
+            console.log(`🚀 [getUserStats] Lancement du calcul des stats pour ${userId}...`);
+            
+            try {
+                await statsService.calculateAndSaveStatsForUsers(guildId, [userId]);
+                console.log(`✅ [getUserStats] Stats calculées avec succès pour ${userId}`);
+                
+                // Réessayer de récupérer les stats
+                userStats = await UserStats.findOne({ guildId, userId });
+                
+                if (!userStats) {
+                    console.error(`❌ [getUserStats] ERREUR: Stats toujours non trouvées après calcul pour ${userId}`);
+                    return res.status(500).json({ 
+                        message: 'Erreur lors du calcul des statistiques. Les données ont été générées mais ne peuvent pas être récupérées.' 
+                    });
+                }
+                
+                console.log(`✅ [getUserStats] Stats récupérées avec succès après calcul pour ${userId}`);
+            } catch (calcError) {
+                console.error(`❌ [getUserStats] Erreur lors du calcul des stats pour ${userId}:`, calcError);
+                return res.status(500).json({ 
+                    message: `Erreur lors du calcul des statistiques: ${calcError.message}` 
+                });
+            }
+        } else {
+            console.log(`✅ [getUserStats] Stats trouvées en cache pour ${userId}`);
         }
+        
+        console.log(`\n🎉 [getUserStats] SUCCESS - Envoi des stats\n`);
         res.json(userStats);
     } catch (error) {
-        console.error(`Erreur lors de la récupération des stats pour l'utilisateur ${req.params.userId}:`, error);
-        res.status(500).json({ message: 'Erreur lors de la récupération des statistiques.' });
+        console.error(`\n❌❌❌ [getUserStats] ERREUR GÉNÉRALE pour l'utilisateur ${req.params.userId}:`);
+        console.error(error);
+        console.error(`❌❌❌\n`);
+        res.status(500).json({ message: `Erreur lors de la récupération des statistiques: ${error.message}` });
     }
 };
 
@@ -127,5 +194,26 @@ exports.updateAllUserStats = async (req, res) => {
     } catch (error) {
         console.error(`Erreur lors de la mise à jour des statistiques pour la guilde ${req.params.guildId}:`, error);
         res.status(500).json({ message: 'Erreur lors de la mise à jour des statistiques.' });
+    }
+};
+
+/**
+ * Déclenche une mise à jour asynchrone des statistiques UNIQUEMENT pour un utilisateur donné.
+ * Fournit un retour 202 immédiat pour ne pas bloquer l'UI.
+ */
+exports.updateUserStatsById = async (req, res) => {
+    try {
+        const { guildId, userId } = req.params;
+
+        console.log(`⚙️  [updateUserStatsById] Déclenche mise à jour des stats pour user=${userId} guild=${guildId}`);
+        // Fire & forget
+        statsService.calculateAndSaveStatsForUsers(guildId, [userId])
+            .then(() => console.log(`✅ [updateUserStatsById] Terminé pour ${userId}`))
+            .catch(err => console.error(`❌ [updateUserStatsById] Échec pour ${userId}:`, err));
+
+        return res.status(202).json({ message: `Calcul des statistiques lancé pour userId=${userId}` });
+    } catch (error) {
+        console.error(`Erreur lors du déclenchement de la mise à jour pour ${req.params.userId}:`, error);
+        return res.status(500).json({ message: 'Erreur lors du déclenchement de la mise à jour des statistiques utilisateur.' });
     }
 };

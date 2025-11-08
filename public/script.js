@@ -867,14 +867,66 @@ async function updateUserChartFor(userIds) {
             }
 
             container.style.display = 'block';
-            container.innerHTML = `<div class="loading">Chargement des statistiques...</div>`;
+            container.innerHTML = `<div class="loading"><i class="fas fa-spinner fa-spin"></i> Chargement des statistiques...</div>`;
 
             try {
-                const response = await makeFetchRequest(`${API_BASE_URL}/dashboard/guilds/${GUILD_ID}/users/${userId}/stats`);
-                if (!response.ok) {
-                    container.innerHTML = `<div class="error">Impossible de charger les statistiques pour cet utilisateur. Les données ne sont peut-être pas encore calculées.</div>`;
+                // Helper pour attendre
+                const wait = (ms) => new Promise(res => setTimeout(res, ms));
+
+                // 1) Tentative initiale de récupération des stats
+                let response = await makeFetchRequest(`${API_BASE_URL}/dashboard/guilds/${GUILD_ID}/users/${userId}/stats`);
+
+                // 2) Si 404, tenter de déclencher un calcul à la demande puis re-poller
+                if (response && response.status === 404) {
+                    let initialMsg = '';
+                    try { initialMsg = (await response.json()).message || ''; } catch {}
+
+                    // Afficher un message de calcul en cours
+                    container.innerHTML = `
+                        <div class="loading">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            Calcul des statistiques en cours…
+                        </div>
+                    `;
+
+                    // Déclencher le calcul côté backend (endpoint dédié dashboard, retour 202 immédiat)
+                    let postResp = await makeFetchRequest(`${API_BASE_URL}/dashboard/guilds/${GUILD_ID}/users/${userId}/stats/update`, { method: 'POST' });
+                    // Si la route n'existe pas encore côté serveur (404), tenter l'ancien endpoint de secours
+                    if (!postResp || postResp.status === 404) {
+                        postResp = await makeFetchRequest(`${API_BASE_URL}/user/update/${GUILD_ID}/${userId}`, { method: 'POST' });
+                    }
+
+                    // Re-poll jusqu'à 8 fois (1s d'intervalle)
+                    let retries = 8;
+                    while (retries-- > 0) {
+                        await wait(1000);
+                        response = await makeFetchRequest(`${API_BASE_URL}/dashboard/guilds/${GUILD_ID}/users/${userId}/stats`);
+                        if (response && response.ok) break;
+                    }
+                }
+
+                // 3) Gestion des erreurs restantes
+                if (!response || !response.ok) {
+                    const errorData = response ? (await response.json().catch(() => ({}))) : {};
+                    if (response && response.status === 404) {
+                        container.innerHTML = `
+                            <div class="error">
+                                <i class="fas fa-exclamation-circle"></i>
+                                <p>${errorData.message || 'Aucune activité vocale enregistrée pour cet utilisateur.'}</p>
+                            </div>
+                        `;
+                    } else {
+                        container.innerHTML = `
+                            <div class="error">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                <p>Impossible de charger les statistiques. ${errorData.message || 'Veuillez réessayer.'}</p>
+                            </div>
+                        `;
+                    }
                     return;
                 }
+
+                // 4) Succès
                 const data = await response.json();
 
                 const formatMs = (ms) => {
@@ -883,51 +935,108 @@ async function updateUserChartFor(userIds) {
                     const minutes = Math.floor(ms / 60000);
                     const hours = Math.floor(minutes / 60);
                     if (hours < 1) return `${minutes}min`;
-                    return `${hours}h ${minutes % 60}min`;
+                    const days = Math.floor(hours / 24);
+                    if (days < 1) return `${hours}h ${minutes % 60}min`;
+                    return `${days}j ${hours % 24}h`;
                 };
 
-                const tag = data.discriminator !== '0' ? `@${data.username}#${data.discriminator}` : `@${data.username}`;
+                const tag = data.discriminator !== '0' ? `${data.username}#${data.discriminator}` : `${data.username}`;
+                const lastUpdate = new Date(data.lastUpdatedAt).toLocaleString('fr-FR');
 
-                const statsPeriods = ['last24h', 'last7d', 'last30d', 'allTime'];
-                const periodLabels = {
-                    'last24h': 'Dernières 24h',
-                    'last7d': '7 derniers jours',
-                    'last30d': '30 derniers jours',
-                    'allTime': 'Depuis toujours'
-                };
+                const statsPeriods = [
+                    { key: 'last24h', label: '24 Heures', icon: '🕐' },
+                    { key: 'last7d', label: '7 Jours', icon: '📅' },
+                    { key: 'last30d', label: '30 Jours', icon: '📆' },
+                    { key: 'allTime', label: 'Depuis Toujours', icon: '⏳' }
+                ];
 
-                const buildStatsHtml = (title, field) => `
-                    <div class="stats-group">
-                        <h4>${title}</h4>
-                        ${statsPeriods.map(period => `
-                            <div class="stats-item">
-                                <span class="stats-label">${periodLabels[period]}</span>
-                                <span class="stats-value">${formatMs(data.stats[period][field])}</span>
+                const buildPeriodCard = (period) => {
+                    const stats = data.stats[period.key];
+                    const timeAlonePercent = stats.timeSpent > 0 
+                        ? ((stats.timeSpentAlone / stats.timeSpent) * 100).toFixed(1) 
+                        : 0;
+
+                    return `
+                        <div class="period-card">
+                            <div class="period-header">
+                                <span class="period-icon">${period.icon}</span>
+                                <h3 class="period-title">${period.label}</h3>
                             </div>
-                        `).join('')}
-                    </div>
-                `;
+                            
+                            <div class="period-stats">
+                                <div class="stat-box">
+                                    <div class="stat-label">Temps Total</div>
+                                    <div class="stat-value stat-primary">${formatMs(stats.timeSpent)}</div>
+                                </div>
+                                <div class="stat-box">
+                                    <div class="stat-label">Temps Seul</div>
+                                    <div class="stat-value stat-secondary">${formatMs(stats.timeSpentAlone)}</div>
+                                    <div class="stat-percent">${timeAlonePercent}%</div>
+                                </div>
+                            </div>
+
+                            ${stats.bestFriends && stats.bestFriends.length > 0 ? `
+                                <div class="friends-section">
+                                    <h4 class="friends-title">Top ${stats.bestFriends.length} Amis</h4>
+                                    <div class="friends-list">
+                                        ${stats.bestFriends.map((friend, index) => `
+                                            <div class="friend-card">
+                                                <div class="friend-rank">#${index + 1}</div>
+                                                <img src="${friend.avatar || 'https://cdn.discordapp.com/embed/avatars/0.png'}" 
+                                                     alt="${friend.username}" 
+                                                     class="friend-avatar"
+                                                     onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+                                                <div class="friend-info">
+                                                    <div class="friend-name">${friend.username}</div>
+                                                    <div class="friend-time">${formatMs(friend.timeSpentTogether)}</div>
+                                                </div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            ` : `
+                                <div class="no-friends">
+                                    <i class="fas fa-user-friends"></i>
+                                    <p>Aucune activité avec d'autres utilisateurs</p>
+                                </div>
+                            `}
+                        </div>
+                    `;
+                };
 
                 container.innerHTML = `
-                    <div class="stats-card">
-                        <div class="stats-card-left">
-                            <img src="${data.avatar}" alt="Avatar" class="stats-card-avatar">
-                            <div class="stats-card-nickname">${data.nickname || data.username}</div>
-                            <div class="stats-card-username">${tag}</div>
-                        </div>
-                        <div class="stats-card-right">
-                            ${buildStatsHtml('Temps en vocal', 'timeSpent')}
-                            ${buildStatsHtml('Temps seul', 'timeSpentAlone')}
-                            <div class="stats-group friends-list">
-                                <h4>Meilleurs amis (All Time)</h4>
-                                ${data.stats.allTime.bestFriends.length > 0 ? data.stats.allTime.bestFriends.map(friend => `
-                                    <div class="friend-item">
-                                        <img src="${friend.avatar}" alt="Avatar" class="friend-avatar">
-                                        <span class="friend-name">${friend.username}</span>
-                                        <span class="friend-time">${formatMs(friend.timeSpentTogether)}</span>
-                                    </div>
-                                `).join('') : '<div class="stats-item"><span class="stats-label">Aucun ami trouvé.</span></div>'}
+                    <div class="profile-panel-content">
+                        <!-- Profile Header -->
+                        <div class="profile-header">
+                            <button class="close-profile-btn" onclick="document.getElementById('userStatsContainer').style.display='none'">
+                                <i class="fas fa-times"></i>
+                            </button>
+                            
+                            <div class="profile-banner">
+                                ${data.avatarDecoration ? `
+                                    <img src="${data.avatarDecoration}" class="profile-decoration" alt="Decoration">
+                                ` : ''}
                             </div>
+                            
+                            <div class="profile-info">
+                                <img src="${data.avatar}" 
+                                     alt="${data.username}" 
+                                     class="profile-avatar"
+                                     onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+                                <div class="profile-details">
+                                    <h2 class="profile-nickname">${data.nickname || data.username}</h2>
+                                    <p class="profile-username">${tag}</p>
+                                    ${data.isBot ? '<span class="bot-badge"><i class="fas fa-robot"></i> Bot</span>' : ''}
+                                    <p class="profile-last-update">
+                                        <i class="fas fa-sync-alt"></i> Dernière MàJ: ${lastUpdate}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Statistics Grid -->
+                        <div class="periods-grid">
+                            ${statsPeriods.map(period => buildPeriodCard(period)).join('')}
                         </div>
                     </div>
                 `;

@@ -15,6 +15,12 @@ async function calculateAndSaveStatsForUsers(guildId, userIds) {
     console.log(`[StatsService] Début de la mise à jour des stats pour ${userIds.length} utilisateur(s) dans la guilde ${guildId}.`);
 
     try {
+        // Vérifier que le client Discord est prêt
+        if (!client.isReady()) {
+            console.error(`[StatsService] Client Discord non connecté. Stats non calculées.`);
+            throw new Error('Client Discord non connecté');
+        }
+        
         const guild = await client.guilds.fetch(guildId);
 
         for (const userId of userIds) {
@@ -33,6 +39,13 @@ async function calculateAndSaveStatsForUsers(guildId, userIds) {
             };
 
             const userSessions = await GuildVoice.find({ guildId, 'channels.members.userId': userId });
+            
+            console.log(`[StatsService] Trouvé ${userSessions.length} session(s) pour userId=${userId}`);
+            
+            if (userSessions.length === 0) {
+                console.warn(`[StatsService] Aucune session trouvée pour userId=${userId}, skip`);
+                continue;
+            }
 
             for (const record of userSessions) {
                 const sessionStart = record.sessionStart.getTime();
@@ -73,7 +86,7 @@ async function calculateAndSaveStatsForUsers(guildId, userIds) {
             }
 
             for (const key in stats) {
-                const sortedFriends = Array.from(stats[key].bestFriends.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
+                const sortedFriends = Array.from(stats[key].bestFriends.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10);
                 finalStats[key] = {
                     timeSpent: stats[key].timeSpent,
                     timeSpentAlone: stats[key].timeSpentAlone,
@@ -90,11 +103,31 @@ async function calculateAndSaveStatsForUsers(guildId, userIds) {
             }
 
             const member = await guild.members.fetch(userId).catch(() => null);
+            
             if (member) {
+                console.log(`[StatsService] Membre Discord trouvé pour ${userId}, sauvegarde avec infos complètes`);
                 await UserStats.findOneAndUpdate({ guildId, userId }, {
-                    username: member.user.username, nickname: member.nickname, discriminator: member.user.discriminator,
-                    avatar: member.user.displayAvatarURL(), avatarDecoration: member.user.avatarDecorationURL({ size: 128 }),
-                    isBot: member.user.bot, stats: finalStats, lastUpdatedAt: new Date()
+                    username: member.user.username, 
+                    nickname: member.nickname, 
+                    discriminator: member.user.discriminator,
+                    avatar: member.user.displayAvatarURL(), 
+                    avatarDecoration: member.user.avatarDecorationURL({ size: 128 }),
+                    isBot: member.user.bot, 
+                    stats: finalStats, 
+                    lastUpdatedAt: new Date()
+                }, { upsert: true, new: true });
+            } else {
+                // Si le membre ne peut pas être récupéré (a quitté le serveur), on sauvegarde quand même les stats
+                console.log(`[StatsService] Membre Discord non trouvé pour ${userId}, sauvegarde avec infos minimales`);
+                await UserStats.findOneAndUpdate({ guildId, userId }, {
+                    username: `Utilisateur ${userId}`, 
+                    nickname: null, 
+                    discriminator: '0',
+                    avatar: 'https://cdn.discordapp.com/embed/avatars/0.png', 
+                    avatarDecoration: null,
+                    isBot: false, 
+                    stats: finalStats, 
+                    lastUpdatedAt: new Date()
                 }, { upsert: true, new: true });
             }
         }
