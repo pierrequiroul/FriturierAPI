@@ -32,9 +32,9 @@ async function calculateAndSaveStatsForUsers(guildId, userIds) {
             };
 
             const stats = {
-                last24h: { timeSpent: 0, timeSpentAlone: 0, bestFriends: new Map() },
-                last7d: { timeSpent: 0, timeSpentAlone: 0, bestFriends: new Map() },
-                last30d: { timeSpent: 0, timeSpentAlone: 0, bestFriends: new Map() },
+                '24h': { timeSpent: 0, timeSpentAlone: 0, bestFriends: new Map() },
+                '7d': { timeSpent: 0, timeSpentAlone: 0, bestFriends: new Map() },
+                '30d': { timeSpent: 0, timeSpentAlone: 0, bestFriends: new Map() },
                 allTime: { timeSpent: 0, timeSpentAlone: 0, bestFriends: new Map() },
             };
 
@@ -102,6 +102,14 @@ async function calculateAndSaveStatsForUsers(guildId, userIds) {
                 };
             }
 
+            // Transformer les clés courtes en clés schema UserStats (last24h, last7d, last30d, allTime)
+            const schemaStats = {
+                last24h: finalStats['24h'],
+                last7d: finalStats['7d'],
+                last30d: finalStats['30d'],
+                allTime: finalStats.allTime
+            };
+
             const member = await guild.members.fetch(userId).catch(() => null);
             
             if (member) {
@@ -113,7 +121,7 @@ async function calculateAndSaveStatsForUsers(guildId, userIds) {
                     avatar: member.user.displayAvatarURL(), 
                     avatarDecoration: member.user.avatarDecorationURL({ size: 128 }),
                     isBot: member.user.bot, 
-                    stats: finalStats, 
+                    stats: schemaStats, 
                     lastUpdatedAt: new Date()
                 }, { upsert: true, new: true });
             } else {
@@ -126,7 +134,7 @@ async function calculateAndSaveStatsForUsers(guildId, userIds) {
                     avatar: 'https://cdn.discordapp.com/embed/avatars/0.png', 
                     avatarDecoration: null,
                     isBot: false, 
-                    stats: finalStats, 
+                    stats: schemaStats, 
                     lastUpdatedAt: new Date()
                 }, { upsert: true, new: true });
             }
