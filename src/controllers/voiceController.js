@@ -82,6 +82,15 @@ exports.recordGuildActivity = async (req, res) => {
         const { channels } = req.body;
         const now = roundToMinute(new Date());
 
+        // Debug logging: incoming request summary (do not log secrets)
+        try {
+            const hasApiKey = !!(req.headers['x-api-key'] || req.headers['X-API-KEY']);
+            const expectedKey = process.env.STATS_API_KEY;
+            const apiKeyMatches = hasApiKey && expectedKey && (req.headers['x-api-key'] === expectedKey || req.headers['X-API-KEY'] === expectedKey);
+            console.log(`[voice] ${req.method} /api/voice/${guildId} - channels:${Array.isArray(channels)?channels.length:0} - x-api-key present:${hasApiKey} matches:${apiKeyMatches}`);
+        } catch (err) {
+            console.log('[voice] Failed to log request headers', err);
+        }
         // Vérifier que channels est un array
         if (!Array.isArray(channels)) {
             return res.status(400).json({ error: 'Le champ "channels" doit être un tableau.' });
