@@ -53,7 +53,7 @@
         </div>
 
         <header class="top-nav">
-            <h1>DASHBOARD</h1>
+            <h1>Dashboard</h1>
             <div class="search-bar">
                 <i class="fas fa-search"></i>
                 <input type="text" placeholder="Rechercher...">
@@ -61,6 +61,9 @@
             <div class="user-profile">
                 <span>Jessica Jones</span>
                 <div class="avatar">JJ</div>
+                <button id="themeToggle" class="btn btn-sm" title="Basculer le thème (clair/sombre)">
+                    <i class="fas fa-moon"></i>
+                </button>
             </div>
         </header>
 
@@ -69,11 +72,28 @@
             <!-- Overview Chart -->
             <div class="chart-card">
                 <div class="chart-header">
-                    <h3>Overview</h3>
-                    <div class="chart-actions">
-                        <button id="overview24hBtn" class="btn btn-sm">24h</button>
-                        <button id="overviewWeekBtn" class="btn btn-sm">Semaine</button>
-                        <button id="overviewMonthBtn" class="btn btn-sm active">Mois</button>
+                    <h3>Activité du serveur</h3>
+                    <div class="period-toggle-bar" style="margin: 0; padding: 8px 12px; gap: 8px;">
+                        <button id="overview6hBtn" class="period-btn">
+                            <span class="icon">🕐</span>
+                            <span>6h</span>
+                        </button>
+                        <button id="overview12hBtn" class="period-btn">
+                            <span class="icon">🕕</span>
+                            <span>12h</span>
+                        </button>
+                        <button id="overview24hBtn" class="period-btn">
+                            <span class="icon">📅</span>
+                            <span>24h</span>
+                        </button>
+                        <button id="overviewWeekBtn" class="period-btn active">
+                            <span class="icon">📆</span>
+                            <span>Semaine</span>
+                        </button>
+                        <button id="overviewMonthBtn" class="period-btn">
+                            <span class="icon">🗓️</span>
+                            <span>Mois</span>
+                        </button>
                     </div>
                 </div>
                 <div id="overviewChart"></div>
@@ -83,40 +103,58 @@
 
         <!-- User Activity Section -->
         <div class="user-activity-container">
-            <!-- Users List -->
+            <!-- Users List (Left Column) -->
             <div class="channels-container">
                 <div class="channels-header">
-                    <h2>Liste des Utilisateurs</h2>
-                    <button id="refreshStatsBtn" class="btn btn-sm" title="Recalculer les statistiques pour tous les utilisateurs. Peut prendre du temps.">
-                        <i class="fas fa-sync-alt"></i>
-                        <span>Rafraîchir les stats</span>
-                    </button>
+                    <h2>Liste des Utilisateurs <span id="selectedCountBadge" class="count-badge" aria-live="polite">0 sélectionné</span></h2>
                 </div>
                 <div class="channels-grid" id="usersList">
                     <!-- Les boutons utilisateurs seront injectés ici par le JS -->
                 </div>
             </div>
 
-            <!-- User Activity Chart -->
-            <div class="chart-card" style="height: fit-content;">
-                 <div class="chart-header">
-                    <h3>Activité de l'utilisateur sélectionné</h3>
-                    <div class="chart-actions">
-                        <button id="user24hBtn" class="btn btn-sm">24h</button>
-                        <button id="userWeekBtn" class="btn btn-sm">Semaine</button>
-                        <button id="userMonthBtn" class="btn btn-sm active">Mois</button>
+            <!-- Chart + Profiles Wrapper (Right Column) -->
+            <div class="chart-and-profiles-wrapper">
+                <!-- User Activity Chart -->
+                <div class="chart-card" style="height: fit-content;">
+                     <div class="chart-header">
+                        <h3 id="userChartTitle">Activité des utilisateurs sélectionnés</h3>
+                        <div class="period-toggle-bar" style="margin: 0; padding: 8px 12px; gap: 8px;">
+                            <button id="user6hBtn" class="period-btn">
+                                <span class="icon">🕐</span>
+                                <span>6h</span>
+                            </button>
+                            <button id="user12hBtn" class="period-btn active">
+                                <span class="icon">🕕</span>
+                                <span>12h</span>
+                            </button>
+                            <button id="user24hBtn" class="period-btn">
+                                <span class="icon">📅</span>
+                                <span>24h</span>
+                            </button>
+                            <button id="userWeekBtn" class="period-btn">
+                                <span class="icon">📆</span>
+                                <span>Semaine</span>
+                            </button>
+                            <button id="userMonthBtn" class="period-btn">
+                                <span class="icon">🗓️</span>
+                                <span>Mois</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="chart-wrapper">
+                        <div id="userChart"></div>
                     </div>
                 </div>
-                <div class="chart-wrapper">
-                    <div id="userChart"></div>
+                
+                <!-- User Profile Panel (below chart, same column) -->
+                <div id="userStatsContainer" class="user-profile-panel" style="display: none;">
+                    <!-- Content will be injected by JavaScript -->
                 </div>
             </div>
         </div>
 
-        <!-- User Profile Panel -->
-        <div id="userStatsContainer" class="user-profile-panel" style="display: none;">
-            <!-- Content will be injected by JavaScript -->
-        </div>
+
     </div>
 </body>
 </html>

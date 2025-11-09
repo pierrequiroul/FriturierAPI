@@ -75,6 +75,25 @@
 
     // Vérifie l'authentification au chargement
     window.addEventListener('load', checkAuthentication);
+        // Thème (light/dark) toggle simple
+        document.addEventListener('DOMContentLoaded', () => {
+            const toggle = document.getElementById('themeToggle');
+            if (toggle) {
+                const root = document.documentElement;
+                const saved = localStorage.getItem('dashboard-theme');
+                if (saved === 'dark') root.classList.add('theme-dark');
+                toggle.addEventListener('click', () => {
+                    root.classList.toggle('theme-dark');
+                    const active = root.classList.contains('theme-dark') ? 'dark' : 'light';
+                    localStorage.setItem('dashboard-theme', active);
+                    const icon = toggle.querySelector('i');
+                    if (icon) {
+                        icon.classList.toggle('fa-moon', active === 'light');
+                        icon.classList.toggle('fa-sun', active === 'dark');
+                    }
+                });
+            }
+        });
         
     // Configuration personnalisée pour l'ordre et les couleurs des canaux
         const CHANNEL_ORDER = [
@@ -98,9 +117,50 @@
         let rawApiData = []; // Pour stocker les données brutes de l'API
         let allChannels = []; // Pour stocker la liste de tous les canaux uniques
         let selectedUserIds = []; // Pour stocker les IDs des utilisateurs sélectionnés
+        let activeUserChannelMap = new Map(); // Map des utilisateurs actuellement connectés -> channelId
+        // Données et état pour l'affichage multi-profils par période
+        let multiUserStatsData = []; // Tableau d'objets UserStats (résultats API)
+        let multiUserSelectedPeriod = 'allTime'; // 'last24h' | 'last7d' | 'last30d' | 'allTime'
+        const PERIOD_TABS = [
+            { key: 'last24h', label: '24h', icon: '🕐' },
+            { key: 'last7d', label: '7j', icon: '📅' },
+            { key: 'last30d', label: '30j', icon: '📆' },
+            { key: 'allTime', label: 'Total', icon: '⏳' }
+        ];
+        /**
+         * Met à jour l'interface liée à la sélection des utilisateurs et la période courante
+         * - Badge de nombre sélectionné
+         * - Sous-titre du titre du graphique d'activité utilisateurs
+         */
+        function updateSelectionUI() {
+            const badgeEl = document.getElementById('selectedCountBadge');
+            const titleEl = document.getElementById('userChartTitle');
+            const count = selectedUserIds.length;
+            const countTextBadge = `${count} sélectionné${count > 1 ? 's' : ''}`;
+            const countTextSubtitle = count === 0 ? 'aucune sélection' : (count === 1 ? '1 utilisateur' : `${count} utilisateurs`);
+            const periodLabelMap = { '24h': '24h', 'week': 'Semaine', 'month': 'Mois' };
+            const periodLabel = periodLabelMap[userWindow] || 'Mois';
+            if (badgeEl) badgeEl.textContent = countTextBadge;
+            if (titleEl) titleEl.setAttribute('data-sub', `${periodLabel} · ${countTextSubtitle}`);
+        }
+
+        /**
+         * Ajuste la luminosité d'une couleur hexadécimale
+         * @param {string} color - Couleur hex (#RRGGBB ou #RGB)
+         * @param {number} percent - Pourcentage d'ajustement (positif = éclaircir, négatif = assombrir)
+         * @returns {string} Couleur ajustée en hex
+         */
+        function adjustBrightness(color, percent) {
+            const num = parseInt(color.replace('#', ''), 16);
+            const amt = Math.round(2.55 * percent);
+            const R = Math.max(0, Math.min(255, (num >> 16) + amt));
+            const G = Math.max(0, Math.min(255, ((num >> 8) & 0x00FF) + amt));
+            const B = Math.max(0, Math.min(255, (num & 0x0000FF) + amt));
+            return `#${(0x1000000 + (R << 16) + (G << 8) + B).toString(16).slice(1).toUpperCase()}`;
+        }
         // États d'affichage
-        let overviewWindow = 'month'; // '24h' | 'week' | 'month'
-        let userWindow = 'month';     // '24h' | 'week' | 'month'
+        let overviewWindow = 'week'; // '24h' | 'week' | 'month' - Défaut: semaine
+        let userWindow = '12h';     // '6h' | '12h' | '24h' | 'week' | 'month' - Défaut: 12h
         let dashboardMinTs = null;    // timestamp du 1er point de données (overview)        // --- GRAPHIQUES APEXCHARTS (Initialisation avec des données vides) ---
         const overviewChartOptions = {
             chart: {
@@ -818,7 +878,11 @@ async function updateUserChartFor(userIds) {
     const now = new Date().getTime();
     // Fenêtre selon le bouton actif
     let windowMs;
-    if (userWindow === '24h') {
+    if (userWindow === '6h') {
+        windowMs = 6 * 60 * 60 * 1000;
+    } else if (userWindow === '12h') {
+        windowMs = 12 * 60 * 60 * 1000;
+    } else if (userWindow === '24h') {
         windowMs = 24 * 60 * 60 * 1000;
     } else if (userWindow === 'week') {
         windowMs = 7 * 24 * 60 * 60 * 1000;
@@ -857,77 +921,72 @@ async function updateUserChartFor(userIds) {
     userChart.updateSeries(finalSeries);
 }
         /**
-         * Affiche la carte de statistiques pour un utilisateur sélectionné.
+         * Affiche les cartes de statistiques pour un ou plusieurs utilisateurs sélectionnés.
+         * @param {string|string[]} userIds - Un seul userId ou un tableau d'userIds
          */
-        async function displayUserStats(userId) {
+        async function displayUserStats(userIds) {
             const container = document.getElementById('userStatsContainer');
-            if (!userId) {
+            
+            // Normaliser en tableau
+            if (!userIds || (Array.isArray(userIds) && userIds.length === 0)) {
                 container.style.display = 'none';
                 return;
             }
-
+            
+            const userIdArray = Array.isArray(userIds) ? userIds : [userIds];
+            
             container.style.display = 'block';
             container.innerHTML = `<div class="loading"><i class="fas fa-spinner fa-spin"></i> Chargement des statistiques...</div>`;
 
             try {
                 // Helper pour attendre
                 const wait = (ms) => new Promise(res => setTimeout(res, ms));
+                
+                // Fonction pour charger les stats d'un seul utilisateur
+                const fetchUserStats = async (userId) => {
+                    // 1) Tentative initiale de récupération des stats
+                    let response = await makeFetchRequest(`${API_BASE_URL}/dashboard/guilds/${GUILD_ID}/users/${userId}/stats`);
 
-                // 1) Tentative initiale de récupération des stats
-                let response = await makeFetchRequest(`${API_BASE_URL}/dashboard/guilds/${GUILD_ID}/users/${userId}/stats`);
-
-                // 2) Si 404, tenter de déclencher un calcul à la demande puis re-poller
-                if (response && response.status === 404) {
-                    let initialMsg = '';
-                    try { initialMsg = (await response.json()).message || ''; } catch {}
-
-                    // Afficher un message de calcul en cours
-                    container.innerHTML = `
-                        <div class="loading">
-                            <i class="fas fa-spinner fa-spin"></i>
-                            Calcul des statistiques en cours…
-                        </div>
-                    `;
-
-                    // Déclencher le calcul côté backend (endpoint dédié dashboard, retour 202 immédiat)
-                    let postResp = await makeFetchRequest(`${API_BASE_URL}/dashboard/guilds/${GUILD_ID}/users/${userId}/stats/update`, { method: 'POST' });
-                    // Si la route n'existe pas encore côté serveur (404), tenter l'ancien endpoint de secours
-                    if (!postResp || postResp.status === 404) {
-                        postResp = await makeFetchRequest(`${API_BASE_URL}/user/update/${GUILD_ID}/${userId}`, { method: 'POST' });
-                    }
-
-                    // Re-poll jusqu'à 8 fois (1s d'intervalle)
-                    let retries = 8;
-                    while (retries-- > 0) {
-                        await wait(1000);
-                        response = await makeFetchRequest(`${API_BASE_URL}/dashboard/guilds/${GUILD_ID}/users/${userId}/stats`);
-                        if (response && response.ok) break;
-                    }
-                }
-
-                // 3) Gestion des erreurs restantes
-                if (!response || !response.ok) {
-                    const errorData = response ? (await response.json().catch(() => ({}))) : {};
+                    // 2) Si 404, tenter de déclencher un calcul à la demande puis re-poller
                     if (response && response.status === 404) {
-                        container.innerHTML = `
-                            <div class="error">
-                                <i class="fas fa-exclamation-circle"></i>
-                                <p>${errorData.message || 'Aucune activité vocale enregistrée pour cet utilisateur.'}</p>
-                            </div>
-                        `;
-                    } else {
-                        container.innerHTML = `
-                            <div class="error">
-                                <i class="fas fa-exclamation-triangle"></i>
-                                <p>Impossible de charger les statistiques. ${errorData.message || 'Veuillez réessayer.'}</p>
-                            </div>
-                        `;
-                    }
-                    return;
-                }
+                        // Déclencher le calcul côté backend (endpoint dédié dashboard, retour 202 immédiat)
+                        let postResp = await makeFetchRequest(`${API_BASE_URL}/dashboard/guilds/${GUILD_ID}/users/${userId}/stats/update`, { method: 'POST' });
+                        // Si la route n'existe pas encore côté serveur (404), tenter l'ancien endpoint de secours
+                        if (!postResp || postResp.status === 404) {
+                            postResp = await makeFetchRequest(`${API_BASE_URL}/user/update/${GUILD_ID}/${userId}`, { method: 'POST' });
+                        }
 
-                // 4) Succès
-                const data = await response.json();
+                        // Re-poll jusqu'à 8 fois (1s d'intervalle)
+                        let retries = 8;
+                        while (retries-- > 0) {
+                            await wait(1000);
+                            response = await makeFetchRequest(`${API_BASE_URL}/dashboard/guilds/${GUILD_ID}/users/${userId}/stats`);
+                            if (response && response.ok) break;
+                        }
+                    }
+
+                    // 3) Retourner résultat ou erreur
+                    if (!response || !response.ok) {
+                        const errorData = response ? (await response.json().catch(() => ({}))) : {};
+                        return { 
+                            error: true, 
+                            userId, 
+                            message: errorData.message || 'Impossible de charger les statistiques'
+                        };
+                    }
+
+                    return await response.json();
+                };
+                
+                // Charger toutes les stats en parallèle
+                const results = await Promise.all(userIdArray.map(id => fetchUserStats(id)));
+                
+                // Séparer les succès et les erreurs
+                const successData = results.filter(r => !r.error);
+                const errorData = results.filter(r => r.error);
+
+                // Mémoriser les données pour rendu par période
+                multiUserStatsData = successData;
 
                 const formatMs = (ms) => {
                     if (!ms || ms < 1000) return `0s`;
@@ -940,110 +999,234 @@ async function updateUserChartFor(userIds) {
                     return `${days}j ${hours % 24}h`;
                 };
 
-                const tag = data.discriminator !== '0' ? `${data.username}#${data.discriminator}` : `${data.username}`;
-                const lastUpdate = new Date(data.lastUpdatedAt).toLocaleString('fr-FR');
-
                 const statsPeriods = [
-                    { key: 'last24h', label: '24 Heures', icon: '🕐' },
-                    { key: 'last7d', label: '7 Jours', icon: '📅' },
-                    { key: 'last30d', label: '30 Jours', icon: '📆' },
-                    { key: 'allTime', label: 'Depuis Toujours', icon: '⏳' }
+                    { key: 'last24h', label: '24h', icon: '🕐' },
+                    { key: 'last7d', label: '7j', icon: '📅' },
+                    { key: 'last30d', label: '30j', icon: '📆' },
+                    { key: 'allTime', label: 'Total', icon: '⏳' }
                 ];
 
-                const buildPeriodCard = (period) => {
-                    const stats = data.stats[period.key];
-                    const timeAlonePercent = stats.timeSpent > 0 
-                        ? ((stats.timeSpentAlone / stats.timeSpent) * 100).toFixed(1) 
-                        : 0;
-
+                const buildCompactPeriodCard = (period, stats) => {
                     return `
-                        <div class="period-card">
-                            <div class="period-header">
-                                <span class="period-icon">${period.icon}</span>
-                                <h3 class="period-title">${period.label}</h3>
+                        <div class="period-card-compact">
+                            <div class="period-stats-compact">
+                                <div class="stat-label-compact">Total période</div>
+                                <div class="stat-value-compact">${formatMs(stats.timeSpent)}</div>
                             </div>
-                            
-                            <div class="period-stats">
-                                <div class="stat-box">
-                                    <div class="stat-label">Temps Total</div>
-                                    <div class="stat-value stat-primary">${formatMs(stats.timeSpent)}</div>
-                                </div>
-                                <div class="stat-box">
-                                    <div class="stat-label">Temps Seul</div>
-                                    <div class="stat-value stat-secondary">${formatMs(stats.timeSpentAlone)}</div>
-                                    <div class="stat-percent">${timeAlonePercent}%</div>
-                                </div>
+                        </div>
+                        <div class="period-card-compact">
+                            <div class="period-stats-compact">
+                                <div class="stat-label-compact">Total seul</div>
+                                <div class="stat-value-compact">${formatMs(stats.timeSpentAlone)}</div>
                             </div>
-
-                            ${stats.bestFriends && stats.bestFriends.length > 0 ? `
-                                <div class="friends-section">
-                                    <h4 class="friends-title">Top ${stats.bestFriends.length} Amis</h4>
-                                    <div class="friends-list">
-                                        ${stats.bestFriends.map((friend, index) => `
-                                            <div class="friend-card">
-                                                <div class="friend-rank">#${index + 1}</div>
-                                                <img src="${friend.avatar || 'https://cdn.discordapp.com/embed/avatars/0.png'}" 
-                                                     alt="${friend.username}" 
-                                                     class="friend-avatar"
-                                                     onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
-                                                <div class="friend-info">
-                                                    <div class="friend-name">${friend.username}</div>
-                                                    <div class="friend-time">${formatMs(friend.timeSpentTogether)}</div>
-                                                </div>
-                                            </div>
-                                        `).join('')}
-                                    </div>
-                                </div>
-                            ` : `
-                                <div class="no-friends">
-                                    <i class="fas fa-user-friends"></i>
-                                    <p>Aucune activité avec d'autres utilisateurs</p>
-                                </div>
-                            `}
                         </div>
                     `;
                 };
 
-                container.innerHTML = `
-                    <div class="profile-panel-content">
-                        <!-- Profile Header -->
-                        <div class="profile-header">
-                            <button class="close-profile-btn" onclick="document.getElementById('userStatsContainer').style.display='none'">
-                                <i class="fas fa-times"></i>
-                            </button>
-                            
-                            <div class="profile-banner">
-                                ${data.avatarDecoration ? `
-                                    <img src="${data.avatarDecoration}" class="profile-decoration" alt="Decoration">
-                                ` : ''}
-                            </div>
-                            
-                            <div class="profile-info">
+                const buildUserCard = (data) => {
+                    const tag = data.discriminator !== '0' ? `${data.username}#${data.discriminator}` : `${data.username}`;
+                    const lastUpdate = new Date(data.lastUpdatedAt).toLocaleString('fr-FR', { 
+                        day: '2-digit', 
+                        month: '2-digit', 
+                        hour: '2-digit', 
+                        minute: '2-digit' 
+                    });
+
+                    // Déterminer la couleur du header selon l'état de connexion
+                    const channelId = activeUserChannelMap.get(data.userId);
+                    const channelColor = channelId ? (CHANNEL_COLORS[channelId] || '#667eea') : '#6c757d';
+                    const headerGradient = `linear-gradient(135deg, ${channelColor} 0%, ${adjustBrightness(channelColor, -20)} 100%)`;
+
+                    // Déterminer le statut de connexion
+                    const isActive = activeUserChannelMap.has(data.userId);
+                    const lastActivityText = isActive 
+                        ? '<span class="status-active"><i class="fas fa-circle"></i> Actif</span>'
+                        : data.lastActivity 
+                            ? `Dernière connexion: ${new Date(data.lastActivity).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+                            : '';
+
+                    return `
+                        <div class="user-stats-card">
+                            <div class="user-card-header" style="background: ${headerGradient};">
                                 <img src="${data.avatar}" 
                                      alt="${data.username}" 
-                                     class="profile-avatar"
+                                     class="user-card-avatar"
                                      onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
-                                <div class="profile-details">
-                                    <h2 class="profile-nickname">${data.nickname || data.username}</h2>
-                                    <p class="profile-username">${tag}</p>
-                                    ${data.isBot ? '<span class="bot-badge"><i class="fas fa-robot"></i> Bot</span>' : ''}
-                                    <p class="profile-last-update">
-                                        <i class="fas fa-sync-alt"></i> Dernière MàJ: ${lastUpdate}
-                                    </p>
+                                <div class="user-card-info">
+                                    <h3 class="user-card-nickname">${data.nickname || data.username}</h3>
+                                    <p class="user-card-username">${tag}</p>
+                                    ${data.isBot ? '<span class="bot-badge-small"><i class="fas fa-robot"></i></span>' : ''}
                                 </div>
                             </div>
+                            
+                            <div class="periods-compact-grid">
+                                ${statsPeriods.map(period => buildCompactPeriodCard(period, data.stats[period.key])).join('')}
+                            </div>
+                            
+                            ${data.stats.allTime.bestFriends && data.stats.allTime.bestFriends.length > 0 ? `
+                                <div class="top-friends-compact">
+                                    <div class="top-friends-header">
+                                        <i class="fas fa-user-friends"></i>
+                                        <span>Top 3 Amis</span>
+                                    </div>
+                                    <div class="friends-compact-list">
+                                        ${data.stats.allTime.bestFriends.slice(0, 3).map((friend, idx) => `
+                                            <div class="friend-compact">
+                                                <span class="friend-rank-compact">#${idx + 1}</span>
+                                                <img src="${friend.avatar}" alt="${friend.username}" class="friend-avatar-compact">
+                                                <span class="friend-name-compact">${friend.username}</span>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            ` : ''}
+                            
+                            <div class="user-card-footer">
+                                <div><i class="fas fa-sync-alt"></i> Mis à jour: ${lastUpdate}</div>
+                                ${lastActivityText ? `<div class="last-activity">${lastActivityText}</div>` : ''}
+                            </div>
                         </div>
+                    `;
+                };
 
-                        <!-- Statistics Grid -->
-                        <div class="periods-grid">
-                            ${statsPeriods.map(period => buildPeriodCard(period)).join('')}
-                        </div>
-                    </div>
-                `;
+                // Rendu via la fonction dédiée (avec sous-menu de périodes)
+                renderMultiUserStats(errorData);
+                
             } catch (err) {
                 console.error("Erreur lors de l'affichage des stats utilisateur:", err);
                 container.innerHTML = `<div class="error">Une erreur est survenue lors de l'affichage des statistiques.</div>`;
             }
+        }
+
+        /**
+         * Rendu des cartes multi-utilisateurs avec sous-menu de périodes
+         * @param {Array} errorData - liste d'erreurs par userId (facultatif)
+         */
+        function renderMultiUserStats(errorData = []) {
+            const container = document.getElementById('userStatsContainer');
+            if (!container) return;
+
+            const formatMs = (ms) => {
+                if (!ms || ms < 1000) return `0s`;
+                if (ms < 60000) return `${Math.round(ms / 1000)}s`;
+                const minutes = Math.floor(ms / 60000);
+                const hours = Math.floor(minutes / 60);
+                if (hours < 1) return `${minutes}min`;
+                const days = Math.floor(hours / 24);
+                if (days < 1) return `${hours}h ${minutes % 60}min`;
+                return `${days}j ${hours % 24}h`;
+            };
+
+            const buildUserCardForPeriod = (data, periodKey) => {
+                const stats = data.stats?.[periodKey] || { timeSpent: 0, timeSpentAlone: 0, bestFriends: [] };
+                const tag = data.discriminator !== '0' ? `${data.username}#${data.discriminator}` : `${data.username}`;
+                const lastUpdate = data.lastUpdatedAt ? new Date(data.lastUpdatedAt).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+
+                // Déterminer la couleur du header selon l'état de connexion
+                const channelId = activeUserChannelMap.get(data.userId);
+                const channelColor = channelId ? (CHANNEL_COLORS[channelId] || '#667eea') : '#6c757d';
+                const headerGradient = `linear-gradient(135deg, ${channelColor} 0%, ${adjustBrightness(channelColor, -20)} 100%)`;
+
+                // Déterminer le statut de connexion
+                const isActive = activeUserChannelMap.has(data.userId);
+                const lastActivityText = isActive 
+                    ? '<span class="status-active"><i class="fas fa-circle"></i> Actif</span>'
+                    : data.lastActivity 
+                        ? `Dernière connexion: ${new Date(data.lastActivity).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+                        : '';
+
+                return `
+                    <div class="user-stats-card">
+                        <div class="user-card-header" style="background: ${headerGradient};">
+                            <img src="${data.avatar}" alt="${data.username}" class="user-card-avatar" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+                            <div class="user-card-info">
+                                <h3 class="user-card-nickname">${data.nickname || data.username}</h3>
+                                <p class="user-card-username">${tag}</p>
+                                ${data.isBot ? '<span class="bot-badge-small"><i class="fas fa-robot"></i></span>' : ''}
+                            </div>
+                        </div>
+
+                        <div class="periods-compact-grid">
+                            <div class="period-card-compact">
+                            
+                                <div class="period-stats-compact">
+                                    <div class="stat-label-compact">Total période</div>
+                                    <div class="stat-value-compact">${formatMs(stats.timeSpent)}</div>
+                                </div>
+                            </div>
+                            <div class="period-card-compact">
+                                
+                                <div class="period-stats-compact">
+                                    <div class="stat-label-compact">Total seul</div>
+                                    <div class="stat-value-compact">${formatMs(stats.timeSpentAlone)}</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        ${stats.bestFriends && stats.bestFriends.length > 0 ? `
+                            <div class="top-friends-compact">
+                                <div class="top-friends-header"><i class="fas fa-user-friends"></i><span>Top amis (${Math.min(stats.bestFriends.length, 5)})</span></div>
+                                <div class="friends-compact-list">
+                                    ${stats.bestFriends.slice(0,5).map((friend, idx) => `
+                                        <div class="friend-compact">
+                                            <span class="friend-rank-compact">#${idx + 1}</span>
+                                            <img src="${friend.avatar}" alt="${friend.username}" class="friend-avatar-compact" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+                                            <span class="friend-name-compact">${friend.username}</span>
+                                            <span class="friend-time-compact">${formatMs(friend.timeSpentTogether)}</span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+
+                        <div class="user-card-footer">
+                            <div><i class="fas fa-sync-alt"></i> Mis à jour: ${lastUpdate}</div>
+                            ${lastActivityText ? `<div class="last-activity">${lastActivityText}</div>` : ''}
+                        </div>
+                    </div>
+                `;
+            };
+
+            // Barre de boutons de période
+            const buttonsHtml = `
+                <div class="period-toggle-bar">
+                    ${PERIOD_TABS.map(p => `
+                        <button class="period-btn ${multiUserSelectedPeriod === p.key ? 'active' : ''}" data-period="${p.key}">
+                            <span class="icon">${p.icon}</span>
+                            <span class="label">${p.label}</span>
+                        </button>
+                    `).join('')}
+                </div>
+            `;
+
+            // Grille des cartes selon période sélectionnée
+            let gridHtml = '';
+            if (multiUserStatsData.length > 0) {
+                gridHtml += `<div class="multi-user-stats-grid">`;
+                gridHtml += multiUserStatsData.map(d => buildUserCardForPeriod(d, multiUserSelectedPeriod)).join('');
+                gridHtml += `</div>`;
+            }
+
+            const errorHtml = (errorData && errorData.length > 0) ? `
+                <div class="error-users">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <p>${errorData.length} utilisateur(s) sans statistiques disponibles</p>
+                </div>
+            ` : '';
+
+            container.innerHTML = buttonsHtml + gridHtml + errorHtml;
+
+            // Wiring: clic sur les boutons de période
+            const btns = container.querySelectorAll('.period-btn');
+            btns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const newPeriod = btn.getAttribute('data-period');
+                    if (newPeriod && newPeriod !== multiUserSelectedPeriod) {
+                        multiUserSelectedPeriod = newPeriod;
+                        renderMultiUserStats(errorData);
+                    }
+                });
+            });
         }
 
         /**
@@ -1097,7 +1280,7 @@ async function updateUserChartFor(userIds) {
                     allChannels = extractChannels(rawApiData, freshChannelNamesMap);
 
                     // Déterminer les utilisateurs actuellement actifs
-                    const activeUserChannelMap = new Map();
+                    activeUserChannelMap.clear();
                     if (rawApiData.length > 0) {
                         const lastRecord = rawApiData[rawApiData.length - 1];
                         // Un utilisateur est actif si le dernier enregistrement n'a pas de date de fin
@@ -1110,6 +1293,18 @@ async function updateUserChartFor(userIds) {
                         }
                     }
                     await populateUsersList(users, activeUserChannelMap);
+
+                    // Sélectionner les 10 premiers utilisateurs par défaut
+                    const usersListContainer = document.getElementById('usersList');
+                    const userCards = usersListContainer.querySelectorAll('.channel-card');
+                    selectedUserIds = []; // Reset
+                    userCards.forEach((card, index) => {
+                        if (index < 10) {
+                            const userId = card.dataset.userId;
+                            selectedUserIds.push(userId);
+                            card.classList.add('selected');
+                        }
+                    });
 
                     // Trouver les dates min et max dans les données pour définir la sélection initiale
                     const timestamps = rawApiData.map(d => new Date(d.sessionStart).getTime());
@@ -1130,8 +1325,15 @@ async function updateUserChartFor(userIds) {
                         annotations: mainAnnotations
                     });
 
-                    // Appliquer la fenêtre par défaut (mois) sur les deux graphs overview
+                    // Appliquer la fenêtre par défaut (semaine) sur les deux graphs overview
                     applyOverviewWindow();
+
+                    // Mettre à jour le graphique utilisateur et les stats avec la sélection par défaut
+                    if (selectedUserIds.length > 0) {
+                        updateUserChartFor(selectedUserIds);
+                        updateSelectionUI();
+                        await displayUserStats(selectedUserIds);
+                    }
                 } else {
                     overviewChart.updateOptions({ noData: { text: 'Aucune donnée à afficher pour cette période.' } });
                     document.getElementById('usersList').innerHTML = `<p style="color: var(--text-secondary); padding: 15px;">Aucun utilisateur actif trouvé.</p>`;
@@ -1155,7 +1357,11 @@ async function updateUserChartFor(userIds) {
             if (!dashboardMinTs) return;
             const nowTs = Date.now();
             let winMs;
-            if (overviewWindow === '24h') {
+            if (overviewWindow === '6h') {
+                winMs = 6 * 60 * 60 * 1000;
+            } else if (overviewWindow === '12h') {
+                winMs = 12 * 60 * 60 * 1000;
+            } else if (overviewWindow === '24h') {
                 winMs = 24 * 60 * 60 * 1000;
             } else if (overviewWindow === 'week') {
                 winMs = 7 * 24 * 60 * 60 * 1000;
@@ -1182,51 +1388,81 @@ async function updateUserChartFor(userIds) {
             });
         }
 
-        function setActive(btnOn, btnOff1, btnOff2) {
+        function setActive(btnOn, ...btnOffs) {
             if (btnOn) btnOn.classList.add('active');
-            if (btnOff1) btnOff1.classList.remove('active');
-            if (btnOff2) btnOff2.classList.remove('active');
+            btnOffs.forEach(btn => {
+                if (btn) btn.classList.remove('active');
+            });
         }
 
+        const overview6hBtn = document.getElementById('overview6hBtn');
+        const overview12hBtn = document.getElementById('overview12hBtn');
         const overview24hBtn = document.getElementById('overview24hBtn');
         const overviewWeekBtn = document.getElementById('overviewWeekBtn');
         const overviewMonthBtn = document.getElementById('overviewMonthBtn');
-        if (overview24hBtn && overviewWeekBtn && overviewMonthBtn) {
+        if (overview6hBtn && overview12hBtn && overview24hBtn && overviewWeekBtn && overviewMonthBtn) {
+            overview6hBtn.addEventListener('click', () => {
+                overviewWindow = '6h';
+                setActive(overview6hBtn, overview12hBtn, overview24hBtn, overviewWeekBtn, overviewMonthBtn);
+                applyOverviewWindow();
+            });
+            overview12hBtn.addEventListener('click', () => {
+                overviewWindow = '12h';
+                setActive(overview12hBtn, overview6hBtn, overview24hBtn, overviewWeekBtn, overviewMonthBtn);
+                applyOverviewWindow();
+            });
             overview24hBtn.addEventListener('click', () => {
                 overviewWindow = '24h';
-                setActive(overview24hBtn, overviewWeekBtn, overviewMonthBtn);
+                setActive(overview24hBtn, overview6hBtn, overview12hBtn, overviewWeekBtn, overviewMonthBtn);
                 applyOverviewWindow();
             });
             overviewWeekBtn.addEventListener('click', () => {
                 overviewWindow = 'week';
-                setActive(overviewWeekBtn, overview24hBtn, overviewMonthBtn);
+                setActive(overviewWeekBtn, overview6hBtn, overview12hBtn, overview24hBtn, overviewMonthBtn);
                 applyOverviewWindow();
             });
             overviewMonthBtn.addEventListener('click', () => {
                 overviewWindow = 'month';
-                setActive(overviewMonthBtn, overview24hBtn, overviewWeekBtn);
+                setActive(overviewMonthBtn, overview6hBtn, overview12hBtn, overview24hBtn, overviewWeekBtn);
                 applyOverviewWindow();
             });
         }
 
+        const user6hBtn = document.getElementById('user6hBtn');
+        const user12hBtn = document.getElementById('user12hBtn');
         const user24hBtn = document.getElementById('user24hBtn');
         const userWeekBtn = document.getElementById('userWeekBtn');
         const userMonthBtn = document.getElementById('userMonthBtn');
-        if (user24hBtn && userWeekBtn && userMonthBtn) {
+        if (user6hBtn && user12hBtn && user24hBtn && userWeekBtn && userMonthBtn) {
+            user6hBtn.addEventListener('click', () => {
+                userWindow = '6h';
+                setActive(user6hBtn, user12hBtn, user24hBtn, userWeekBtn, userMonthBtn);
+                updateUserChartFor(selectedUserIds);
+                updateSelectionUI();
+            });
+            user12hBtn.addEventListener('click', () => {
+                userWindow = '12h';
+                setActive(user12hBtn, user6hBtn, user24hBtn, userWeekBtn, userMonthBtn);
+                updateUserChartFor(selectedUserIds);
+                updateSelectionUI();
+            });
             user24hBtn.addEventListener('click', () => {
                 userWindow = '24h';
-                setActive(user24hBtn, userWeekBtn, userMonthBtn);
+                setActive(user24hBtn, user6hBtn, user12hBtn, userWeekBtn, userMonthBtn);
                 updateUserChartFor(selectedUserIds);
+                updateSelectionUI();
             });
             userWeekBtn.addEventListener('click', () => {
                 userWindow = 'week';
-                setActive(userWeekBtn, user24hBtn, userMonthBtn);
+                setActive(userWeekBtn, user6hBtn, user12hBtn, user24hBtn, userMonthBtn);
                 updateUserChartFor(selectedUserIds);
+                updateSelectionUI();
             });
             userMonthBtn.addEventListener('click', () => {
                 userWindow = 'month';
-                setActive(userMonthBtn, user24hBtn, userWeekBtn);
+                setActive(userMonthBtn, user6hBtn, user12hBtn, user24hBtn, userWeekBtn);
                 updateUserChartFor(selectedUserIds);
+                updateSelectionUI();
             });
         }
 
@@ -1247,12 +1483,14 @@ async function updateUserChartFor(userIds) {
 
                 // Mettre à jour le graphique
                 updateUserChartFor(selectedUserIds);
+                // Mettre à jour badge + sous-titre
+                updateSelectionUI();
 
-                // Mettre à jour la carte de statistiques (uniquement si un seul utilisateur est sélectionné)
-                if (selectedUserIds.length === 1) {
-                    displayUserStats(selectedUserIds[0]);
+                // Mettre à jour la carte de statistiques pour tous les utilisateurs sélectionnés
+                if (selectedUserIds.length > 0) {
+                    displayUserStats(selectedUserIds);
                 } else {
-                    displayUserStats(null); // Cacher la carte si plusieurs ou aucun utilisateur n'est sélectionné
+                    displayUserStats(null);
                 }
             }
         });
@@ -1283,9 +1521,9 @@ async function updateUserChartFor(userIds) {
                     const result = await response.json();
                     alert(result.message); // Simple feedback for the user
 
-                    // If a single user is selected, refresh their stats view to show the new data
-                    if (selectedUserIds.length === 1) {
-                        await displayUserStats(selectedUserIds[0]);
+                    // If users are selected, refresh their stats view to show the new data
+                    if (selectedUserIds.length > 0) {
+                        await displayUserStats(selectedUserIds);
                     }
                 } catch (error) {
                     console.error('Erreur lors du rafraîchissement des statistiques:', error);
@@ -1301,3 +1539,5 @@ async function updateUserChartFor(userIds) {
 
         // Lancer l'initialisation au chargement de la page
         document.addEventListener('DOMContentLoaded', initializeDashboard);
+    // Initialiser affichage du badge (0 sélection) et sous-titre
+    document.addEventListener('DOMContentLoaded', () => updateSelectionUI());
