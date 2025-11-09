@@ -194,7 +194,16 @@
                 height: 300,
                 toolbar: { 
                     autoSelected: 'zoom',
-                    show: false
+                    show: true,
+                    tools: {
+                        download: true,
+                        selection: true,
+                        zoom: true,
+                        zoomin: true,
+                        zoomout: true,
+                        pan: true,
+                        reset: true
+                    }
                 }
             },
             series: [], // Les données seront chargées dynamiquement
@@ -901,6 +910,9 @@ async function updateUserChartFor(userIds) {
     }
 
     const now = new Date().getTime();
+    const offsetMs = 5 * 60 * 1000; // Offset de 5 minutes pour rendre le marqueur "maintenant" visible
+    const maxTime = now + offsetMs;
+    
     // Fenêtre selon le bouton actif
     let windowMs;
     if (userWindow === '6h') {
@@ -914,7 +926,7 @@ async function updateUserChartFor(userIds) {
     } else {
         windowMs = 30 * 24 * 60 * 60 * 1000;
     }
-    const windowStart = now - windowMs;
+    const windowStart = maxTime - windowMs;
 
     // 1. Récupérer les détails des utilisateurs (noms)
     const selectedUsersMap = await fetchUserDetails(userIds);
@@ -929,11 +941,11 @@ async function updateUserChartFor(userIds) {
     const yAxisCategories = userIds.map(id => selectedUsersMap.get(id) || `Utilisateur ${id.slice(-4)}`);
 
     // 4. Générer les annotations pour la fenêtre choisie
-    const userAnnotations = generateAnnotations(new Date(windowStart), new Date(now));
+    const userAnnotations = generateAnnotations(new Date(windowStart), new Date(maxTime));
 
     // 5. Mettre à jour le graphique
     userChart.updateOptions({
-        xaxis: { min: windowStart, max: now },
+        xaxis: { min: windowStart, max: maxTime },
         yaxis: {
             categories: yAxisCategories,
             reversed: false // Les utilisateurs sont listés de haut en bas
@@ -1179,10 +1191,50 @@ async function updateUserChartFor(userIds) {
                 return `${days}j ${hours % 24}h`;
             };
 
+            const calculatePercentages = (stats, periodKey, data) => {
+                // Pourcentage temps seul
+                const alonePercent = stats.timeSpent > 0 
+                    ? Math.round((stats.timeSpentAlone / stats.timeSpent) * 100)
+                    : 0;
+
+                // Comparaison avec période précédente
+                let previousPeriodKey = null;
+                if (periodKey === 'last24h') {
+                    // Pour 24h, comparer avec les 24h précédentes (calcul manuel si disponible)
+                    // Pour simplifier, on utilise last7d comme référence approximative
+                    previousPeriodKey = null; // Pas de période directement comparable
+                } else if (periodKey === 'last7d') {
+                    previousPeriodKey = 'last24h'; // Comparer 7j avec 24h (approximation)
+                } else if (periodKey === 'last30d') {
+                    previousPeriodKey = 'last7d'; // Comparer 30j avec 7j
+                } else if (periodKey === 'allTime') {
+                    previousPeriodKey = 'last30d'; // Comparer total avec 30j
+                }
+
+                let changePercent = null;
+                let isIncrease = false;
+                
+                if (previousPeriodKey && data.stats?.[previousPeriodKey]) {
+                    const prevStats = data.stats[previousPeriodKey];
+                    const currentTime = stats.timeSpent || 0;
+                    const prevTime = prevStats.timeSpent || 0;
+                    
+                    if (prevTime > 0) {
+                        const change = ((currentTime - prevTime) / prevTime) * 100;
+                        changePercent = Math.abs(Math.round(change));
+                        isIncrease = change > 0;
+                    }
+                }
+
+                return { alonePercent, changePercent, isIncrease };
+            };
+
             const buildUserCardForPeriod = (data, periodKey) => {
                 const stats = data.stats?.[periodKey] || { timeSpent: 0, timeSpentAlone: 0, bestFriends: [] };
                 const tag = data.discriminator !== '0' ? `${data.username}#${data.discriminator}` : `${data.username}`;
                 const lastUpdate = data.lastUpdatedAt ? new Date(data.lastUpdatedAt).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+
+                const { alonePercent, changePercent, isIncrease } = calculatePercentages(stats, periodKey, data);
 
                 // Déterminer la couleur du header selon l'état de connexion
                 const channelId = activeUserChannelMap.get(data.userId);
@@ -1210,17 +1262,23 @@ async function updateUserChartFor(userIds) {
 
                         <div class="periods-compact-grid">
                             <div class="period-card-compact">
-                            
                                 <div class="period-stats-compact">
                                     <div class="stat-label-compact">Total période</div>
                                     <div class="stat-value-compact">${formatMs(stats.timeSpent)}</div>
+                                    ${changePercent !== null ? `
+                                        <div class="stat-change-compact" style="color: ${isIncrease ? '#1bc5bd' : '#f64e60'}; font-size: 0.65rem; margin-top: 2px;">
+                                            <i class="fas fa-arrow-${isIncrease ? 'up' : 'down'}"></i> ${changePercent}%
+                                        </div>
+                                    ` : ''}
                                 </div>
                             </div>
                             <div class="period-card-compact">
-                                
                                 <div class="period-stats-compact">
                                     <div class="stat-label-compact">Total seul</div>
                                     <div class="stat-value-compact">${formatMs(stats.timeSpentAlone)}</div>
+                                    <div class="stat-percent-compact" style="color: var(--text-secondary); font-size: 0.65rem; margin-top: 2px;">
+                                        ${alonePercent}% du temps
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1302,6 +1360,8 @@ async function updateUserChartFor(userIds) {
         async function initializeDashboard() {
             showLoader();
             const now = new Date().getTime(); // Heure actuelle
+            const offsetMs = 5 * 60 * 1000; // Offset de 5 minutes
+            const maxTime = now + offsetMs; // Temps max avec offset
 
             try {
                 // On charge l'historique complet sans spécifier de dates
@@ -1325,9 +1385,9 @@ async function updateUserChartFor(userIds) {
                     }
                     // --- Fin de l'optimisation ---
 
-                    // Mettre à jour le graphique d'aperçu (détaillé par canal) et l'étendre jusqu'à maintenant
+                    // Mettre à jour le graphique d'aperçu (détaillé par canal) et l'étendre jusqu'à maxTime
                     let overviewSeries = processOverviewData(rawApiData, freshChannelNamesMap);
-                    overviewSeries = extendSeriesTo(overviewSeries, now);
+                    overviewSeries = extendSeriesTo(overviewSeries, maxTime);
 
                     // Extraire les couleurs correspondantes dans le bon ordre
                     const overviewColors = overviewSeries.map(series => CHANNEL_COLORS[series.id] || '#9E9E9E'); // Gris par défaut
@@ -1336,9 +1396,9 @@ async function updateUserChartFor(userIds) {
                         colors: overviewColors
                     });
 
-                    // Mettre à jour le graphique de la brush (total des membres) et l'étendre jusqu'à maintenant
+                    // Mettre à jour le graphique de la brush (total des membres) et l'étendre jusqu'à maxTime
                     let brushSeries = processTotalMembersData(rawApiData);
-                    brushSeries = extendSeriesTo(brushSeries, now);
+                    brushSeries = extendSeriesTo(brushSeries, maxTime);
                     overviewChartBrush.updateSeries(brushSeries);
 
                     // Remplir la liste des utilisateurs
@@ -1379,7 +1439,7 @@ async function updateUserChartFor(userIds) {
                     dashboardMinTs = minDate.getTime();
 
                     // Générer les annotations pour les graphiques principaux
-                    const mainAnnotations = generateAnnotations(minDate, new Date(now));
+                    const mainAnnotations = generateAnnotations(minDate, new Date(maxTime));
                     // Applique les annotations sur le principal
                     overviewChart.updateOptions({ annotations: mainAnnotations });
 
@@ -1387,7 +1447,7 @@ async function updateUserChartFor(userIds) {
                     overviewChartBrush.updateOptions({
                         xaxis: {
                             min: dashboardMinTs,
-                            max: now
+                            max: maxTime
                         },
                         annotations: mainAnnotations
                     });
@@ -1423,6 +1483,9 @@ async function updateUserChartFor(userIds) {
         function applyOverviewWindow() {
             if (!dashboardMinTs) return;
             const nowTs = Date.now();
+            const offsetMs = 5 * 60 * 1000; // Offset de 5 minutes pour rendre le marqueur "maintenant" visible
+            const maxTs = nowTs + offsetMs;
+            
             let winMs;
             if (overviewWindow === '6h') {
                 winMs = 6 * 60 * 60 * 1000;
@@ -1435,21 +1498,21 @@ async function updateUserChartFor(userIds) {
             } else {
                 winMs = 30 * 24 * 60 * 60 * 1000;
             }
-            const desiredMin = nowTs - winMs;
+            const desiredMin = maxTs - winMs;
             const minTs = Math.max(dashboardMinTs, desiredMin);
 
-            const annotations = generateAnnotations(new Date(minTs), new Date(nowTs));
+            const annotations = generateAnnotations(new Date(minTs), new Date(maxTs));
 
             // Met à jour le graphique principal (zoom sur la fenêtre)
             overviewChart.updateOptions({
-                xaxis: { min: minTs, max: nowTs },
+                xaxis: { min: minTs, max: maxTs },
                 annotations
             });
             // Met à jour la sélection de la brush pour refléter la fenêtre
             overviewChartBrush.updateOptions({
                 chart: {
                     selection: {
-                        xaxis: { min: minTs, max: nowTs }
+                        xaxis: { min: minTs, max: maxTs }
                     }
                 }
             });
