@@ -145,18 +145,42 @@
         }
 
         /**
-         * Ajuste la luminosité d'une couleur hexadécimale
-         * @param {string} color - Couleur hex (#RRGGBB ou #RGB)
+         * Ajuste la luminosité d'une couleur hexadécimale en préservant la teinte
+         * @param {string} color - Couleur hex (#RRGGBB ou #RRGGBBAA)
          * @param {number} percent - Pourcentage d'ajustement (positif = éclaircir, négatif = assombrir)
          * @returns {string} Couleur ajustée en hex
          */
         function adjustBrightness(color, percent) {
-            const num = parseInt(color.replace('#', ''), 16);
-            const amt = Math.round(2.55 * percent);
-            const R = Math.max(0, Math.min(255, (num >> 16) + amt));
-            const G = Math.max(0, Math.min(255, ((num >> 8) & 0x00FF) + amt));
-            const B = Math.max(0, Math.min(255, (num & 0x0000FF) + amt));
-            return `#${(0x1000000 + (R << 16) + (G << 8) + B).toString(16).slice(1).toUpperCase()}`;
+            // Retirer le # et gérer l'alpha si présent
+            let hex = color.replace('#', '');
+            let alpha = '';
+            if (hex.length === 8) {
+                alpha = hex.slice(6, 8);
+                hex = hex.slice(0, 6);
+            } else if (hex.length === 3) {
+                hex = hex.split('').map(c => c + c).join('');
+            }
+
+            // Convertir en RGB
+            const r = parseInt(hex.substring(0, 2), 16);
+            const g = parseInt(hex.substring(2, 4), 16);
+            const b = parseInt(hex.substring(4, 6), 16);
+
+            // Ajuster chaque composante proportionnellement pour préserver la teinte
+            const factor = percent < 0 ? (100 + percent) / 100 : 1 + percent / 100;
+            
+            const newR = Math.max(0, Math.min(255, Math.round(r * factor)));
+            const newG = Math.max(0, Math.min(255, Math.round(g * factor)));
+            const newB = Math.max(0, Math.min(255, Math.round(b * factor)));
+
+            // Reconvertir en hex
+            const result = '#' + 
+                newR.toString(16).padStart(2, '0') +
+                newG.toString(16).padStart(2, '0') +
+                newB.toString(16).padStart(2, '0') +
+                alpha;
+
+            return result.toUpperCase();
         }
         // États d'affichage
         let overviewWindow = 'week'; // '24h' | 'week' | 'month' - Défaut: semaine
@@ -985,6 +1009,38 @@ async function updateUserChartFor(userIds) {
                 const successData = results.filter(r => !r.error);
                 const errorData = results.filter(r => r.error);
 
+                // Récupérer les IDs de tous les amis pour charger leurs avatars Discord
+                const allFriendIds = new Set();
+                successData.forEach(data => {
+                    if (data.stats) {
+                        Object.values(data.stats).forEach(periodStats => {
+                            if (periodStats.bestFriends) {
+                                periodStats.bestFriends.forEach(friend => {
+                                    allFriendIds.add(friend.userId);
+                                });
+                            }
+                        });
+                    }
+                });
+
+                // Charger les détails des amis (avatars Discord)
+                let friendDetailsMap = new Map();
+                if (allFriendIds.size > 0) {
+                    try {
+                        const friendResponse = await makeFetchRequest(`${API_BASE_URL}/dashboard/guilds/${GUILD_ID}/users/bulk`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ userIds: Array.from(allFriendIds) }),
+                        });
+                        if (friendResponse && friendResponse.ok) {
+                            const friendDetails = await friendResponse.json();
+                            friendDetailsMap = new Map(friendDetails.map(u => [u.id, u]));
+                        }
+                    } catch (err) {
+                        console.error("Impossible de récupérer les avatars des amis:", err);
+                    }
+                }
+
                 // Mémoriser les données pour rendu par période
                 multiUserStatsData = successData;
 
@@ -1070,13 +1126,18 @@ async function updateUserChartFor(userIds) {
                                         <span>Top 3 Amis</span>
                                     </div>
                                     <div class="friends-compact-list">
-                                        ${data.stats.allTime.bestFriends.slice(0, 3).map((friend, idx) => `
-                                            <div class="friend-compact">
-                                                <span class="friend-rank-compact">#${idx + 1}</span>
-                                                <img src="${friend.avatar}" alt="${friend.username}" class="friend-avatar-compact">
-                                                <span class="friend-name-compact">${friend.username}</span>
-                                            </div>
-                                        `).join('')}
+                                        ${data.stats.allTime.bestFriends.slice(0, 3).map((friend, idx) => {
+                                            const friendDetail = friendDetailsMap.get(friend.userId);
+                                            const friendAvatar = friendDetail?.avatar || friend.avatar || 'https://cdn.discordapp.com/embed/avatars/0.png';
+                                            const friendName = friendDetail?.nickname || friendDetail?.username || friend.username;
+                                            return `
+                                                <div class="friend-compact">
+                                                    <span class="friend-rank-compact">#${idx + 1}</span>
+                                                    <img src="${friendAvatar}" alt="${friendName}" class="friend-avatar-compact" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+                                                    <span class="friend-name-compact">${friendName}</span>
+                                                </div>
+                                            `;
+                                        }).join('')}
                                     </div>
                                 </div>
                             ` : ''}
@@ -1167,14 +1228,19 @@ async function updateUserChartFor(userIds) {
                             <div class="top-friends-compact">
                                 <div class="top-friends-header"><i class="fas fa-user-friends"></i><span>Top amis (${Math.min(stats.bestFriends.length, 5)})</span></div>
                                 <div class="friends-compact-list">
-                                    ${stats.bestFriends.slice(0,5).map((friend, idx) => `
-                                        <div class="friend-compact">
-                                            <span class="friend-rank-compact">#${idx + 1}</span>
-                                            <img src="${friend.avatar}" alt="${friend.username}" class="friend-avatar-compact" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
-                                            <span class="friend-name-compact">${friend.username}</span>
-                                            <span class="friend-time-compact">${formatMs(friend.timeSpentTogether)}</span>
-                                        </div>
-                                    `).join('')}
+                                    ${stats.bestFriends.slice(0,5).map((friend, idx) => {
+                                        const friendDetail = friendDetailsMap.get(friend.userId);
+                                        const friendAvatar = friendDetail?.avatar || friend.avatar || 'https://cdn.discordapp.com/embed/avatars/0.png';
+                                        const friendName = friendDetail?.nickname || friendDetail?.username || friend.username;
+                                        return `
+                                            <div class="friend-compact">
+                                                <span class="friend-rank-compact">#${idx + 1}</span>
+                                                <img src="${friendAvatar}" alt="${friendName}" class="friend-avatar-compact" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
+                                                <span class="friend-name-compact">${friendName}</span>
+                                                <span class="friend-time-compact">${formatMs(friend.timeSpentTogether)}</span>
+                                            </div>
+                                        `;
+                                    }).join('')}
                                 </div>
                             </div>
                         ` : ''}
