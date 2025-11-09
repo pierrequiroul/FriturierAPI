@@ -20,6 +20,7 @@ const statsRoutes = require('./routes/statsRoutes');
 const authRoutes = require('./routes/authRoutes');
 const apiKeyAuth = require('./middleware/auth');
 const checkAuth = require('./middleware/checkAuth');
+const sessionCleanupService = require('./services/sessionCleanupService');
 const app = express();
 const client = require('./services/discordClient');
 
@@ -111,6 +112,9 @@ client.once('ready', () => {
     console.log('\n🤖 ========================================');
     console.log(`🤖 Discord Bot logged in as ${client.user.tag}`);
     console.log('🤖 ========================================\n');
+    
+    // Démarrer le service de nettoyage automatique des sessions
+    sessionCleanupService.startCleanupService();
 });
 client.login(process.env.DISCORD_TOKEN);
 
