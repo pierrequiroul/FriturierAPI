@@ -118,6 +118,7 @@
         let allChannels = []; // Pour stocker la liste de tous les canaux uniques
         let selectedUserIds = []; // Pour stocker les IDs des utilisateurs sélectionnés
         let activeUserChannelMap = new Map(); // Map des utilisateurs actuellement connectés -> channelId
+        let friendDetailsMap = new Map(); // Map des détails des amis (avatars Discord)
         // Données et état pour l'affichage multi-profils par période
         let multiUserStatsData = []; // Tableau d'objets UserStats (résultats API)
         let multiUserSelectedPeriod = 'allTime'; // 'last24h' | 'last7d' | 'last30d' | 'allTime'
@@ -1024,7 +1025,7 @@ async function updateUserChartFor(userIds) {
                 });
 
                 // Charger les détails des amis (avatars Discord)
-                let friendDetailsMap = new Map();
+                friendDetailsMap = new Map(); // Utiliser la variable globale
                 if (allFriendIds.size > 0) {
                     try {
                         const friendResponse = await makeFetchRequest(`${API_BASE_URL}/dashboard/guilds/${GUILD_ID}/users/bulk`, {
