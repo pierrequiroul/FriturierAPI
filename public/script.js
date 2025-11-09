@@ -1229,6 +1229,41 @@ async function updateUserChartFor(userIds) {
                 return { alonePercent, changePercent, isIncrease };
             };
 
+            // Fonction pour vérifier si deux utilisateurs sont mutuellement meilleurs amis #1
+            const checkMutualBestFriends = (userId1, userId2, periodKey) => {
+                const user1Data = multiUserStatsData.find(u => u.userId === userId1);
+                const user2Data = multiUserStatsData.find(u => u.userId === userId2);
+                
+                if (!user1Data || !user2Data) return false;
+                
+                const user1BestFriends = user1Data.stats?.[periodKey]?.bestFriends || [];
+                const user2BestFriends = user2Data.stats?.[periodKey]?.bestFriends || [];
+                
+                // Vérifier si chacun est le #1 de l'autre
+                const user1First = user1BestFriends[0]?.userId;
+                const user2First = user2BestFriends[0]?.userId;
+                
+                return user1First === userId2 && user2First === userId1;
+            };
+
+            // Fonction pour obtenir le style de fond d'un ami selon son rang
+            const getFriendBackground = (rank, friendUserId, currentUserId, periodKey) => {
+                if (rank === 0 && checkMutualBestFriends(currentUserId, friendUserId, periodKey)) {
+                    // Gradient spécial pour les meilleurs amis mutuels
+                    return 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)';
+                } else if (rank === 0) {
+                    // Or pour le premier
+                    return 'linear-gradient(135deg, #ffd700 0%, #ffed4e 100%)';
+                } else if (rank === 1) {
+                    // Argent pour le deuxième
+                    return 'linear-gradient(135deg, #c0c0c0 0%, #e8e8e8 100%)';
+                } else if (rank === 2) {
+                    // Bronze pour le troisième
+                    return 'linear-gradient(135deg, #cd7f32 0%, #e8a87c 100%)';
+                }
+                return 'transparent';
+            };
+
             const buildUserCardForPeriod = (data, periodKey) => {
                 const stats = data.stats?.[periodKey] || { timeSpent: 0, timeSpentAlone: 0, bestFriends: [] };
                 const tag = data.discriminator !== '0' ? `${data.username}#${data.discriminator}` : `${data.username}`;
@@ -1285,18 +1320,20 @@ async function updateUserChartFor(userIds) {
 
                         ${stats.bestFriends && stats.bestFriends.length > 0 ? `
                             <div class="top-friends-compact">
-                                <div class="top-friends-header"><i class="fas fa-user-friends"></i><span>Top amis (${Math.min(stats.bestFriends.length, 5)})</span></div>
+                                <div class="top-friends-header"><i class="fas fa-user-friends"></i><span>Top amis (${Math.min(stats.bestFriends.length, 10)})</span></div>
                                 <div class="friends-compact-list">
-                                    ${stats.bestFriends.slice(0,5).map((friend, idx) => {
+                                    ${stats.bestFriends.slice(0,10).map((friend, idx) => {
                                         const friendDetail = friendDetailsMap.get(friend.userId);
                                         const friendAvatar = friendDetail?.avatar || friend.avatar || 'https://cdn.discordapp.com/embed/avatars/0.png';
                                         const friendName = friendDetail?.nickname || friendDetail?.username || friend.username;
+                                        const friendBg = getFriendBackground(idx, friend.userId, data.userId, periodKey);
+                                        const isMutual = idx === 0 && checkMutualBestFriends(data.userId, friend.userId, periodKey);
                                         return `
-                                            <div class="friend-compact">
-                                                <span class="friend-rank-compact">#${idx + 1}</span>
+                                            <div class="friend-compact" style="background: ${friendBg}; ${friendBg !== 'transparent' ? 'color: #000; font-weight: 500;' : ''}">
+                                                <span class="friend-rank-compact" style="${friendBg !== 'transparent' ? 'color: #000;' : ''}">#${idx + 1}${isMutual ? ' 💕' : ''}</span>
                                                 <img src="${friendAvatar}" alt="${friendName}" class="friend-avatar-compact" onerror="this.src='https://cdn.discordapp.com/embed/avatars/0.png'">
-                                                <span class="friend-name-compact">${friendName}</span>
-                                                <span class="friend-time-compact">${formatMs(friend.timeSpentTogether)}</span>
+                                                <span class="friend-name-compact" style="${friendBg !== 'transparent' ? 'color: #000;' : ''}">${friendName}</span>
+                                                <span class="friend-time-compact" style="${friendBg !== 'transparent' ? 'color: #000;' : ''}">${formatMs(friend.timeSpentTogether)}</span>
                                             </div>
                                         `;
                                     }).join('')}

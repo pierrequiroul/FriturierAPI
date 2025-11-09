@@ -799,6 +799,28 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+    max-height: 200px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 4px;
+}
+
+.friends-compact-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.friends-compact-list::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.friends-compact-list::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 3px;
+}
+
+.friends-compact-list::-webkit-scrollbar-thumb:hover {
+    background: #555;
 }
 
 .friend-compact {
@@ -809,6 +831,12 @@
     background: #f8f9fa;
     border-radius: 6px;
     font-size: 0.8rem;
+    transition: all 0.2s ease;
+}
+
+.friend-compact:has([style*="linear-gradient"]) {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    transform: scale(1.02);
 }
 
 .friend-rank-compact {
