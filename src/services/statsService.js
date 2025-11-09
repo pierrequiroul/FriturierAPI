@@ -32,11 +32,14 @@ async function calculateAndSaveStatsForUsers(guildId, userIds) {
             };
 
             const stats = {
-                '24h': { timeSpent: 0, timeSpentAlone: 0, bestFriends: new Map() },
-                '7d': { timeSpent: 0, timeSpentAlone: 0, bestFriends: new Map() },
-                '30d': { timeSpent: 0, timeSpentAlone: 0, bestFriends: new Map() },
-                allTime: { timeSpent: 0, timeSpentAlone: 0, bestFriends: new Map() },
+                '24h': { timeSpent: 0, timeSpentAlone: 0, timeAfk: 0, bestFriends: new Map() },
+                '7d': { timeSpent: 0, timeSpentAlone: 0, timeAfk: 0, bestFriends: new Map() },
+                '30d': { timeSpent: 0, timeSpentAlone: 0, timeAfk: 0, bestFriends: new Map() },
+                allTime: { timeSpent: 0, timeSpentAlone: 0, timeAfk: 0, bestFriends: new Map() },
             };
+
+            // ID du salon AFK à exclure (à configurer selon votre serveur)
+            const AFK_CHANNEL_ID = process.env.AFK_CHANNEL_ID || null;
 
             const userSessions = await GuildVoice.find({ guildId, 'channels.members.userId': userId });
             
@@ -55,20 +58,30 @@ async function calculateAndSaveStatsForUsers(guildId, userIds) {
                 const userChannel = record.channels.find(c => c.members.some(m => m.userId === userId));
                 if (!userChannel) continue;
 
-                stats.allTime.timeSpent += duration;
-                if (userChannel.members.length === 1) stats.allTime.timeSpentAlone += duration;
-                userChannel.members.forEach(m => {
-                    if (m.userId !== userId) stats.allTime.bestFriends.set(m.userId, (stats.allTime.bestFriends.get(m.userId) || 0) + duration);
-                });
+                // Exclure le temps passé dans le salon AFK
+                const isAfk = AFK_CHANNEL_ID && userChannel.channelId === AFK_CHANNEL_ID;
+                if (isAfk) {
+                    stats.allTime.timeAfk += duration;
+                } else {
+                    stats.allTime.timeSpent += duration;
+                    if (userChannel.members.length === 1) stats.allTime.timeSpentAlone += duration;
+                    userChannel.members.forEach(m => {
+                        if (m.userId !== userId) stats.allTime.bestFriends.set(m.userId, (stats.allTime.bestFriends.get(m.userId) || 0) + duration);
+                    });
+                }
 
                 for (const key in ranges) {
                     const overlap = calculateOverlap(sessionStart, sessionEnd, ranges[key].start.getTime(), ranges[key].end.getTime());
                     if (overlap > 0) {
-                        stats[key].timeSpent += overlap;
-                        if (userChannel.members.length === 1) stats[key].timeSpentAlone += overlap;
-                        userChannel.members.forEach(m => {
-                            if (m.userId !== userId) stats[key].bestFriends.set(m.userId, (stats[key].bestFriends.get(m.userId) || 0) + overlap);
-                        });
+                        if (isAfk) {
+                            stats[key].timeAfk += overlap;
+                        } else {
+                            stats[key].timeSpent += overlap;
+                            if (userChannel.members.length === 1) stats[key].timeSpentAlone += overlap;
+                            userChannel.members.forEach(m => {
+                                if (m.userId !== userId) stats[key].bestFriends.set(m.userId, (stats[key].bestFriends.get(m.userId) || 0) + overlap);
+                            });
+                        }
                     }
                 }
             }
@@ -86,10 +99,39 @@ async function calculateAndSaveStatsForUsers(guildId, userIds) {
             }
 
             for (const key in stats) {
-                const sortedFriends = Array.from(stats[key].bestFriends.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10);
+                // Exclure les bots du classement best friends
+                const sortedFriends = Array.from(stats[key].bestFriends.entries())
+                    .filter(([friendId]) => {
+                        const member = friendMembers.get(friendId);
+                        return member && !member.user.bot;
+                    })
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 10);
+
+                // Calcul du temps moyen par session (hors AFK)
+                let sessionCount = 0;
+                let totalSessionTime = 0;
+                for (const record of userSessions) {
+                    const sessionStart = record.sessionStart.getTime();
+                    const sessionEnd = (record.sessionEnd || now).getTime();
+                    const duration = sessionEnd - sessionStart;
+                    const userChannel = record.channels.find(c => c.members.some(m => m.userId === userId));
+                    if (!userChannel) continue;
+                    const isAfk = AFK_CHANNEL_ID && userChannel.channelId === AFK_CHANNEL_ID;
+                    // On ne compte que les sessions hors AFK et qui ont un overlap avec la période
+                    const overlap = calculateOverlap(sessionStart, sessionEnd, ranges[key].start.getTime(), ranges[key].end.getTime());
+                    if (overlap > 0 && !isAfk) {
+                        sessionCount++;
+                        totalSessionTime += overlap;
+                    }
+                }
+                const averageTime = sessionCount > 0 ? Math.round(totalSessionTime / sessionCount) : 0;
+
                 finalStats[key] = {
                     timeSpent: stats[key].timeSpent,
                     timeSpentAlone: stats[key].timeSpentAlone,
+                    timeAfk: stats[key].timeAfk,
+                    averageTime,
                     bestFriends: sortedFriends.map(([friendId, time]) => {
                         const friendMember = friendMembers.get(friendId);
                         return {

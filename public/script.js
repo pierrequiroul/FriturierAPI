@@ -1284,6 +1284,11 @@ async function updateUserChartFor(userIds) {
                         ? `Dernière connexion: ${new Date(data.lastActivity).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
                         : '';
 
+                // Calcul du pourcentage AFK
+                const afkPercent = (stats.timeSpent + stats.timeAfk) > 0
+                    ? Math.round((stats.timeAfk / (stats.timeSpent + stats.timeAfk)) * 100)
+                    : 0;
+
                 return `
                     <div class="user-stats-card">
                         <div class="user-card-header" style="background: ${headerGradient};">
@@ -1298,7 +1303,7 @@ async function updateUserChartFor(userIds) {
                         <div class="periods-compact-grid">
                             <div class="period-card-compact">
                                 <div class="period-stats-compact">
-                                    <div class="stat-label-compact">Total période</div>
+                                    <div class="stat-label-compact">Total</div>
                                     <div class="stat-value-compact">${formatMs(stats.timeSpent)}</div>
                                     ${changePercent !== null ? `
                                         <div class="stat-change-compact" style="color: ${isIncrease ? '#1bc5bd' : '#f64e60'}; font-size: 0.65rem; margin-top: 2px;">
@@ -1307,15 +1312,31 @@ async function updateUserChartFor(userIds) {
                                     ` : ''}
                                 </div>
                             </div>
+                            <div class="period-card-compact period-afk-compact">
+                                <div class="period-stats-compact">
+                                    <div class="stat-label-compact">Moyenne</div>
+                                    <div class="stat-value-compact" style="color: #888;">${formatMs(stats.averageTime || 0)}</div>
+                                </div>
+                            </div>
                             <div class="period-card-compact">
                                 <div class="period-stats-compact">
-                                    <div class="stat-label-compact">Total seul</div>
+                                    <div class="stat-label-compact">Seul</div>
                                     <div class="stat-value-compact">${formatMs(stats.timeSpentAlone)}</div>
                                     <div class="stat-percent-compact" style="color: var(--text-secondary); font-size: 0.65rem; margin-top: 2px;">
                                         ${alonePercent}% du temps
                                     </div>
                                 </div>
                             </div>
+                            <div class="period-card-compact period-afk-compact">
+                                <div class="period-stats-compact">
+                                    <div class="stat-label-compact">AFK</div>
+                                    <div class="stat-value-compact" style="color: #888;">${formatMs(stats.timeAfk || 0)}</div>
+                                    <div class="stat-percent-compact" style="color: var(--text-secondary); font-size: 0.65rem; margin-top: 2px;">
+                                       ${afkPercent}% du temps
+                                    </div>
+                                </div>
+                            </div>
+
                         </div>
 
                         ${stats.bestFriends && stats.bestFriends.length > 0 ? `
