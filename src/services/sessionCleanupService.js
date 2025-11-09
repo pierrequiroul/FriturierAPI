@@ -13,6 +13,10 @@ const CLEANUP_INTERVAL = 2 * 60 * 1000;
 // Timeout de session inactive (en millisecondes) - 5 minutes
 const SESSION_TIMEOUT = 5 * 60 * 1000;
 
+// Délai de grâce minimum avant qu'une session puisse être fermée (en millisecondes) - 3 minutes
+// Cela évite de fermer une session qui vient juste de démarrer au moment du boot de l'API
+const MINIMUM_SESSION_AGE = 3 * 60 * 1000;
+
 let cleanupTimer = null;
 
 /**
@@ -113,54 +117,63 @@ async function performCleanup() {
  */
 async function shouldCloseSession(session, now) {
     try {
-        // Vérifier si le bot Discord est prêt
-        if (!client.isReady()) {
-            console.warn(`[SessionCleanup] Client Discord non prêt, impossible de vérifier la session ${session._id}`);
-            // Fallback: fermer si la session est très ancienne (timeout)
-            const sessionAge = now - session.sessionStart;
-            return sessionAge > SESSION_TIMEOUT;
-        }
-
-        // Récupérer la guilde
-        const guild = client.guilds.cache.get(session.guildId);
-        if (!guild) {
-            console.warn(`[SessionCleanup] Guilde ${session.guildId} non trouvée, fermeture de la session ${session._id}`);
-            return true;
-        }
-
-        // Vérifier chaque canal de la session
-        let hasActiveMembers = false;
-
-        for (const channelData of session.channels) {
-            const channel = guild.channels.cache.get(channelData.channelId);
-            
-            // Si le canal n'existe plus, le considérer comme vide
-            if (!channel) {
-                continue;
-            }
-
-            // Vérifier s'il y a des membres dans le canal
-            if (channel.members && channel.members.size > 0) {
-                hasActiveMembers = true;
-                break;
-            }
-        }
-
-        // Si aucun membre actif n'est trouvé, fermer la session
-        if (!hasActiveMembers) {
-            console.log(`[SessionCleanup] Session ${session._id} sans membres actifs détectée`);
-            return true;
-        }
-
-        // Vérifier aussi le timeout (sécurité supplémentaire)
+        // PROTECTION 1: Ne jamais fermer une session trop récente
+        // Évite de fermer des sessions actives au démarrage de l'API
         const sessionAge = now - session.sessionStart;
-        if (sessionAge > SESSION_TIMEOUT) {
-            // Session ouverte depuis trop longtemps sans changement d'état
-            // Cela peut arriver si le bot a manqué des événements
-            console.log(`[SessionCleanup] Session ${session._id} expirée (timeout: ${Math.round(sessionAge / 60000)} min)`);
+        if (sessionAge < MINIMUM_SESSION_AGE) {
+            console.log(`[SessionCleanup] Session ${session._id} trop récente (${Math.round(sessionAge / 60000)} min), ignorée`);
+            return false;
+        }
+
+        // LOGIQUE PRINCIPALE: Une session doit être fermée SI ET SEULEMENT SI
+        // il existe une session PLUS RÉCENTE pour la même guilde
+        // Cela signifie que l'état a changé et qu'une nouvelle session a été créée
+        const newerSession = await GuildVoice.findOne({
+            guildId: session.guildId,
+            sessionStart: { $gt: session.sessionStart }
+        }).sort({ sessionStart: 1 }).limit(1);
+
+        if (newerSession) {
+            // Une session plus récente existe, donc celle-ci doit être fermée
+            console.log(`[SessionCleanup] Session ${session._id} doit être fermée (remplacée par session ${newerSession._id})`);
             return true;
         }
 
+        // Pas de session plus récente, donc celle-ci est toujours la session active
+        // SAUF si elle est vraiment très ancienne (timeout de sécurité)
+        if (sessionAge > SESSION_TIMEOUT) {
+            console.warn(`[SessionCleanup] Session ${session._id} très ancienne (${Math.round(sessionAge / 60000)} min) sans nouvelle session - possible problème`);
+            
+            // Double vérification: est-ce que des membres sont vraiment présents dans Discord ?
+            if (!client.isReady()) {
+                console.warn(`[SessionCleanup] Client Discord non prêt, impossible de vérifier - session conservée par sécurité`);
+                return false;
+            }
+
+            const guild = client.guilds.cache.get(session.guildId);
+            if (!guild) {
+                console.warn(`[SessionCleanup] Guilde ${session.guildId} non trouvée, session fermée`);
+                return true;
+            }
+
+            // Vérifier si TOUS les canaux vocaux de la guilde sont vides
+            const allVoiceChannels = guild.channels.cache.filter(ch => ch.type === 2); // Type 2 = GuildVoice
+            let totalMembers = 0;
+            allVoiceChannels.forEach(ch => {
+                totalMembers += ch.members ? ch.members.size : 0;
+            });
+
+            if (totalMembers === 0) {
+                console.log(`[SessionCleanup] Session ${session._id} expirée et aucun membre vocal détecté - fermeture`);
+                return true;
+            } else {
+                console.warn(`[SessionCleanup] Session ${session._id} expirée MAIS ${totalMembers} membre(s) vocal présent(s) - CONSERVÉE (snapshot manquant?)`);
+                return false;
+            }
+        }
+
+        // Session récente et toujours active
+        console.log(`[SessionCleanup] Session ${session._id} toujours active (âge: ${Math.round(sessionAge / 60000)} min)`);
         return false;
     } catch (err) {
         console.error(`[SessionCleanup] Erreur lors de la vérification de la session ${session._id}:`, err);
