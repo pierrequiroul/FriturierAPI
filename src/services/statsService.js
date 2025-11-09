@@ -114,15 +114,24 @@ async function calculateAndSaveStatsForUsers(guildId, userIds) {
                 for (const record of userSessions) {
                     const sessionStart = record.sessionStart.getTime();
                     const sessionEnd = (record.sessionEnd || now).getTime();
-                    const duration = sessionEnd - sessionStart;
                     const userChannel = record.channels.find(c => c.members.some(m => m.userId === userId));
                     if (!userChannel) continue;
                     const isAfk = AFK_CHANNEL_ID && userChannel.channelId === AFK_CHANNEL_ID;
-                    // On ne compte que les sessions hors AFK et qui ont un overlap avec la période
-                    const overlap = calculateOverlap(sessionStart, sessionEnd, ranges[key].start.getTime(), ranges[key].end.getTime());
-                    if (overlap > 0 && !isAfk) {
-                        sessionCount++;
-                        totalSessionTime += overlap;
+                    
+                    // On ne compte que les sessions hors AFK
+                    if (!isAfk) {
+                        // Pour allTime, on compte toute la durée
+                        // Pour les autres périodes, on ne compte que l'overlap
+                        if (key === 'allTime') {
+                            sessionCount++;
+                            totalSessionTime += (sessionEnd - sessionStart);
+                        } else if (ranges[key]) {
+                            const overlap = calculateOverlap(sessionStart, sessionEnd, ranges[key].start.getTime(), ranges[key].end.getTime());
+                            if (overlap > 0) {
+                                sessionCount++;
+                                totalSessionTime += overlap;
+                            }
+                        }
                     }
                 }
                 const averageTime = sessionCount > 0 ? Math.round(totalSessionTime / sessionCount) : 0;
