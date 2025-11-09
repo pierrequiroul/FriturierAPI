@@ -9,6 +9,8 @@ const friendSchema = new mongoose.Schema({
 const periodStatsSchema = new mongoose.Schema({
     timeSpent: { type: Number, default: 0 },
     timeSpentAlone: { type: Number, default: 0 },
+    timeAfk: { type: Number, default: 0 },
+    averageTime: { type: Number, default: 0 },
     bestFriends: [friendSchema]
 }, { _id: false });
 
