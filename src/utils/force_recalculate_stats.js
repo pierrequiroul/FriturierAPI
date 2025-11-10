@@ -1,14 +1,16 @@
 /**
  * Script pour forcer le recalcul de toutes les statistiques utilisateur
- * Usage: node force_recalculate_stats.js <guildId>
- * Exemple: node force_recalculate_stats.js 355051708503687168
+ * Usage: node src/utils/force_recalculate_stats.js <guildId>
+ * Exemple: node src/utils/force_recalculate_stats.js 355051708503687168
  */
 
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 const mongoose = require('mongoose');
 const GuildVoice = require('../models/GuildVoice');
 const UserStats = require('../models/UserStats');
 const statsService = require('../services/statsService');
+const discordClient = require('../services/discordClient');
 
 const GUILD_ID = process.argv[2] || '355051708503687168';
 
@@ -23,6 +25,26 @@ async function forceRecalculate() {
         console.log('📡 Connexion à MongoDB...');
         await mongoose.connect(process.env.MONGODB_URI);
         console.log('✅ Connecté à MongoDB\n');
+
+        // Connexion au client Discord
+        console.log('🤖 Connexion au client Discord...');
+        if (!discordClient.isReady()) {
+            await new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    reject(new Error('Timeout lors de la connexion Discord (30s)'));
+                }, 30000);
+
+                discordClient.once('ready', () => {
+                    clearTimeout(timeout);
+                    resolve();
+                });
+
+                if (!discordClient.token) {
+                    discordClient.login(process.env.DISCORD_BOT_TOKEN).catch(reject);
+                }
+            });
+        }
+        console.log(`✅ Client Discord connecté (${discordClient.user.tag})\n`);
 
         // Étape 1: Suppression des anciennes stats
         console.log('🗑️  Suppression des anciennes statistiques...');
@@ -57,7 +79,10 @@ async function forceRecalculate() {
 
         // Déconnexion
         await mongoose.disconnect();
-        console.log('👋 Déconnecté de MongoDB\n');
+        console.log('👋 Déconnecté de MongoDB');
+        
+        discordClient.destroy();
+        console.log('👋 Client Discord déconnecté\n');
         
         process.exit(0);
     } catch (error) {
@@ -66,6 +91,9 @@ async function forceRecalculate() {
         
         try {
             await mongoose.disconnect();
+            if (discordClient.isReady()) {
+                discordClient.destroy();
+            }
         } catch (disconnectError) {
             console.error('Erreur lors de la déconnexion:', disconnectError);
         }
