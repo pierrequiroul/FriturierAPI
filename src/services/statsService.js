@@ -115,33 +115,42 @@ async function calculateAndSaveStatsForUsers(guildId, userIds) {
                     .sort((a, b) => b[1] - a[1])
                     .slice(0, 10);
 
-                // Calcul du temps moyen par session (hors AFK)
-                let sessionCount = 0;
-                let totalSessionTime = 0;
-                for (const record of userSessions) {
-                    const sessionStart = record.sessionStart.getTime();
-                    const sessionEnd = (record.sessionEnd || now).getTime();
-                    const userChannel = record.channels.find(c => c.members.some(m => m.userId === userId));
-                    if (!userChannel) continue;
-                    const isAfk = AFK_CHANNEL_ID && userChannel.channelId === AFK_CHANNEL_ID;
-                    
-                    // On ne compte que les sessions hors AFK
-                    if (!isAfk) {
-                        // Pour allTime, on compte toute la durée
-                        // Pour les autres périodes, on ne compte que l'overlap
-                        if (key === 'allTime') {
-                            sessionCount++;
-                            totalSessionTime += (sessionEnd - sessionStart);
-                        } else if (ranges[key]) {
-                            const overlap = calculateOverlap(sessionStart, sessionEnd, ranges[key].start.getTime(), ranges[key].end.getTime());
-                            if (overlap > 0) {
-                                sessionCount++;
-                                totalSessionTime += overlap;
-                            }
-                        }
+                // Calcul du temps moyen selon la période
+                let averageTime = 0;
+                
+                if (key === '24h') {
+                    // Moyenne entre 24h actuelle et 24h précédente
+                    const current24h = stats['24h'].timeSpent || 0;
+                    const previous24h = stats['previous24h'].timeSpent || 0;
+                    averageTime = Math.round((current24h + previous24h) / 2);
+                } else if (key === 'previous24h') {
+                    // Pour previous24h, on utilise la même logique que 24h
+                    const current24h = stats['24h'].timeSpent || 0;
+                    const previous24h = stats['previous24h'].timeSpent || 0;
+                    averageTime = Math.round((current24h + previous24h) / 2);
+                } else if (key === '7d') {
+                    // Moyenne du temps par jour sur les 7 derniers jours
+                    averageTime = Math.round(stats['7d'].timeSpent / 7);
+                } else if (key === 'previous7d') {
+                    // Moyenne du temps par jour sur les 7 jours précédents
+                    averageTime = Math.round(stats['previous7d'].timeSpent / 7);
+                } else if (key === '30d') {
+                    // Moyenne du temps par jour sur les 30 derniers jours
+                    averageTime = Math.round(stats['30d'].timeSpent / 30);
+                } else if (key === 'previous30d') {
+                    // Moyenne du temps par jour sur les 30 jours précédents
+                    averageTime = Math.round(stats['previous30d'].timeSpent / 30);
+                } else if (key === 'allTime') {
+                    // Moyenne du temps par jour sur toute la période
+                    // Calculer le nombre de jours depuis la première session
+                    if (userSessions.length > 0) {
+                        const firstSessionTime = Math.min(...userSessions.map(s => s.sessionStart.getTime()));
+                        const daysSinceFirstSession = Math.max(1, Math.ceil((now.getTime() - firstSessionTime) / (24 * 3600 * 1000)));
+                        averageTime = Math.round(stats['allTime'].timeSpent / daysSinceFirstSession);
+                    } else {
+                        averageTime = 0;
                     }
                 }
-                const averageTime = sessionCount > 0 ? Math.round(totalSessionTime / sessionCount) : 0;
 
                 finalStats[key] = {
                     timeSpent: stats[key].timeSpent,

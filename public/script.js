@@ -1273,6 +1273,18 @@ async function updateUserChartFor(userIds) {
 
                 const { alonePercent, changePercent, isIncrease } = calculatePercentages(stats, periodKey, data);
 
+                // Déterminer le label de la moyenne selon la période
+                let averageLabel = 'Moyenne';
+                if (periodKey === 'last24h') {
+                    averageLabel = 'Moy. avec la veille';
+                } else if (periodKey === 'last7d') {
+                    averageLabel = 'Moy. par jour';
+                } else if (periodKey === 'last30d') {
+                    averageLabel = 'Moy. par jour';
+                } else if (periodKey === 'allTime') {
+                    averageLabel = 'Moy. par jour';
+                }
+
                 // Déterminer la couleur du header selon l'état de connexion
                 const channelId = activeUserChannelMap.get(data.userId);
                 const channelColor = channelId ? (CHANNEL_COLORS[channelId] || '#667eea') : '#6c757d';
@@ -1316,7 +1328,7 @@ async function updateUserChartFor(userIds) {
                             </div>
                             <div class="period-card-compact period-afk-compact">
                                 <div class="period-stats-compact">
-                                    <div class="stat-label-compact">Moyenne</div>
+                                    <div class="stat-label-compact">${averageLabel}</div>
                                     <div class="stat-value-compact" style="color: #888;">${formatMs(stats.averageTime || 0)}</div>
                                 </div>
                             </div>
