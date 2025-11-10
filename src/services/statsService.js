@@ -29,12 +29,19 @@ async function calculateAndSaveStatsForUsers(guildId, userIds) {
                 '24h': { start: new Date(now.getTime() - 24 * 3600 * 1000), end: now },
                 '7d': { start: new Date(now.getTime() - 7 * 24 * 3600 * 1000), end: now },
                 '30d': { start: new Date(now.getTime() - 30 * 24 * 3600 * 1000), end: now },
+                // Périodes précédentes pour comparaison
+                'previous24h': { start: new Date(now.getTime() - 48 * 3600 * 1000), end: new Date(now.getTime() - 24 * 3600 * 1000) },
+                'previous7d': { start: new Date(now.getTime() - 14 * 24 * 3600 * 1000), end: new Date(now.getTime() - 7 * 24 * 3600 * 1000) },
+                'previous30d': { start: new Date(now.getTime() - 60 * 24 * 3600 * 1000), end: new Date(now.getTime() - 30 * 24 * 3600 * 1000) },
             };
 
             const stats = {
                 '24h': { timeSpent: 0, timeSpentAlone: 0, timeAfk: 0, bestFriends: new Map() },
                 '7d': { timeSpent: 0, timeSpentAlone: 0, timeAfk: 0, bestFriends: new Map() },
                 '30d': { timeSpent: 0, timeSpentAlone: 0, timeAfk: 0, bestFriends: new Map() },
+                'previous24h': { timeSpent: 0, timeSpentAlone: 0, timeAfk: 0, bestFriends: new Map() },
+                'previous7d': { timeSpent: 0, timeSpentAlone: 0, timeAfk: 0, bestFriends: new Map() },
+                'previous30d': { timeSpent: 0, timeSpentAlone: 0, timeAfk: 0, bestFriends: new Map() },
                 allTime: { timeSpent: 0, timeSpentAlone: 0, timeAfk: 0, bestFriends: new Map() },
             };
 
@@ -153,11 +160,14 @@ async function calculateAndSaveStatsForUsers(guildId, userIds) {
                 };
             }
 
-            // Transformer les clés courtes en clés schema UserStats (last24h, last7d, last30d, allTime)
+            // Transformer les clés courtes en clés schema UserStats (last24h, last7d, last30d, previous24h, previous7d, previous30d, allTime)
             const schemaStats = {
                 last24h: finalStats['24h'],
                 last7d: finalStats['7d'],
                 last30d: finalStats['30d'],
+                previous24h: finalStats['previous24h'],
+                previous7d: finalStats['previous7d'],
+                previous30d: finalStats['previous30d'],
                 allTime: finalStats.allTime
             };
 

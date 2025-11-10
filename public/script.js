@@ -1200,15 +1200,17 @@ async function updateUserChartFor(userIds) {
                 // Comparaison avec période précédente
                 let previousPeriodKey = null;
                 if (periodKey === 'last24h') {
-                    // Pour 24h, comparer avec les 24h précédentes (calcul manuel si disponible)
-                    // Pour simplifier, on utilise last7d comme référence approximative
-                    previousPeriodKey = null; // Pas de période directement comparable
+                    // Pour 24h, comparer avec les 24h précédentes (de -48h à -24h)
+                    previousPeriodKey = 'previous24h';
                 } else if (periodKey === 'last7d') {
-                    previousPeriodKey = 'last24h'; // Comparer 7j avec 24h (approximation)
+                    // Pour 7j, comparer avec les 7j précédents (de -14j à -7j)
+                    previousPeriodKey = 'previous7d';
                 } else if (periodKey === 'last30d') {
-                    previousPeriodKey = 'last7d'; // Comparer 30j avec 7j
+                    // Pour 30j, comparer avec les 30j précédents (de -60j à -30j)
+                    previousPeriodKey = 'previous30d';
                 } else if (periodKey === 'allTime') {
-                    previousPeriodKey = 'last30d'; // Comparer total avec 30j
+                    // Pour allTime, comparer avec last30d
+                    previousPeriodKey = 'last30d';
                 }
 
                 let changePercent = null;

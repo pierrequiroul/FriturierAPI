@@ -27,6 +27,9 @@ const userStatsSchema = new mongoose.Schema({
         last24h: periodStatsSchema,
         last7d: periodStatsSchema,
         last30d: periodStatsSchema,
+        previous24h: periodStatsSchema,
+        previous7d: periodStatsSchema,
+        previous30d: periodStatsSchema,
         allTime: periodStatsSchema
     },
     lastUpdatedAt: { type: Date, default: Date.now }

@@ -42,4 +42,7 @@ router.get('/routes', (req, res) => {
 // Route pour lancer la mise à jour manuelle des statistiques pour une guilde (déclenchée par le bouton du dashboard)
 router.post('/guilds/:guildId/stats/update', userStatsController.updateAllUserStats);
 
+// Route pour forcer le recalcul complet de toutes les statistiques (supprime et recalcule tout)
+router.post('/guilds/:guildId/stats/force-recalculate', userStatsController.forceRecalculateAllStats);
+
 module.exports = router;

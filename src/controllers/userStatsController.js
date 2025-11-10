@@ -217,3 +217,45 @@ exports.updateUserStatsById = async (req, res) => {
         return res.status(500).json({ message: 'Erreur lors du déclenchement de la mise à jour des statistiques utilisateur.' });
     }
 };
+
+/**
+ * Force le recalcul complet de toutes les statistiques pour une guilde.
+ * Supprime toutes les stats existantes et les recalcule depuis zéro.
+ * Retourne immédiatement (202) et effectue le calcul en arrière-plan.
+ */
+exports.forceRecalculateAllStats = async (req, res) => {
+    try {
+        const { guildId } = req.params;
+        
+        console.log(`🔄 [forceRecalculateAllStats] Début du recalcul forcé pour la guilde ${guildId}`);
+        
+        // Lancer le processus en arrière-plan
+        (async () => {
+            try {
+                console.log(`🗑️  [forceRecalculateAllStats] Suppression des anciennes stats pour guild=${guildId}`);
+                
+                // Supprimer toutes les stats existantes pour cette guilde
+                const deleteResult = await UserStats.deleteMany({ guildId });
+                console.log(`✅ [forceRecalculateAllStats] ${deleteResult.deletedCount} entrées supprimées`);
+                
+                // Récupérer tous les utilisateurs uniques qui ont une activité
+                const allUserIds = await GuildVoice.distinct('channels.members.userId', { guildId });
+                console.log(`👥 [forceRecalculateAllStats] ${allUserIds.length} utilisateurs trouvés`);
+                
+                // Recalculer les stats pour tous les utilisateurs
+                await statsService.calculateAndSaveStatsForUsers(guildId, allUserIds);
+                
+                console.log(`✅ [forceRecalculateAllStats] Recalcul complet terminé pour la guilde ${guildId}`);
+            } catch (error) {
+                console.error(`❌ [forceRecalculateAllStats] Erreur lors du recalcul pour guild=${guildId}:`, error);
+            }
+        })();
+        
+        return res.status(202).json({ 
+            message: `Recalcul forcé des statistiques lancé pour la guilde ${guildId}. Les anciennes données seront supprimées et recalculées.` 
+        });
+    } catch (error) {
+        console.error(`Erreur lors du déclenchement du recalcul forcé pour ${req.params.guildId}:`, error);
+        return res.status(500).json({ message: 'Erreur lors du déclenchement du recalcul forcé des statistiques.' });
+    }
+};
