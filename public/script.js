@@ -1,6 +1,10 @@
     // --- CONFIGURATION ---
-    const API_BASE_URL = '/api'; // Utilise un chemin relatif pour que le frontend appelle le backend qui le sert.
+    const BASE_PATH = window.BASE_PATH || ''; // Défini dans index.html et login.html
+    const API_BASE_URL = `${BASE_PATH}/api`; // Utilise un chemin relatif pour que le frontend appelle le backend qui le sert.
     const GUILD_ID = '355051708503687168'; // Remplacez par un ID de serveur pour les tests
+
+    console.log('🔧 Configuration BASE_PATH:', BASE_PATH || '(racine)');
+    console.log('🔧 API_BASE_URL:', API_BASE_URL);
 
     // Fonction pour vérifier si le token est présent et valide
     function getAuthToken() {
@@ -14,7 +18,7 @@
         const token = getAuthToken();
         if (!token) {
             console.log('Pas de token trouvé, redirection vers login');
-            window.location.href = '/login.html';
+            window.location.href = `${BASE_PATH}/login.html`;
             return null;
         }
 
@@ -31,7 +35,7 @@
             if (response.status === 401) {
                 console.log('Token invalide ou expiré');
                 localStorage.removeItem('token');
-                window.location.href = '/login.html';
+                window.location.href = `${BASE_PATH}/login.html`;
                 return null;
             }
             return response;
@@ -43,18 +47,26 @@
 
     // Vérification de l'authentification au chargement de la page
     async function checkAuthentication() {
-        console.log('Vérification de l\'authentification...');
+        console.log('🔐 Vérification de l\'authentification...');
+        console.log('🔐 Chemin actuel:', window.location.pathname);
+        console.log('🔐 BASE_PATH configuré:', BASE_PATH || '(vide)');
+        
         const token = getAuthToken();
         const currentPath = window.location.pathname;
         
-        if (currentPath === '/login.html') {
-            console.log('Page de login, pas de vérification nécessaire');
+        // Vérifie si on est sur la page de login (avec ou sans BASE_PATH)
+        const isLoginPage = currentPath === '/login.html' || 
+                          currentPath === `${BASE_PATH}/login.html` ||
+                          currentPath.endsWith('/login.html');
+        
+        if (isLoginPage) {
+            console.log('✅ Page de login détectée, pas de vérification nécessaire');
             return;
         }
 
         if (!token) {
-            console.log('Pas de token, redirection vers login');
-            window.location.href = '/login.html';
+            console.log('❌ Pas de token, redirection vers login');
+            window.location.href = `${BASE_PATH}/login.html`;
             return;
         }
 
@@ -69,7 +81,7 @@
         } catch (error) {
             console.error('Erreur d\'authentification:', error);
             localStorage.removeItem('token');
-            window.location.href = '/login.html';
+            window.location.href = `${BASE_PATH}/login.html`;
         }
     }
 
