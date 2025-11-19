@@ -31,14 +31,6 @@ app.use((req, res, next) => {
     if (req.body && Object.keys(req.body).length > 0) {
         console.log(`📦 Body:`, JSON.stringify(req.body).substring(0, 200));
     }
-    
-    // Log de la réponse
-    const originalSend = res.send;
-    res.send = function(data) {
-        console.log(`📤 Response ${res.statusCode} pour ${req.method} ${req.url}`);
-        originalSend.call(this, data);
-    };
-    
     next();
 });
 
@@ -55,13 +47,6 @@ app.use(express.static(path.join(__dirname, '../public')));
 // Routes d'authentification (publiques)
 app.use('/api/auth', authRoutes);
 
-// Endpoint public pour récupérer la configuration du frontend
-app.get('/api/config', (req, res) => {
-    res.json({
-        basePath: process.env.BASE_PATH || ''
-    });
-});
-
 // Middleware d'authentification pour les autres routes API
 app.use('/api', (req, res, next) => {
     if (req.path === '/auth/login') {
@@ -76,25 +61,6 @@ app.use('/api/user', checkAuth, statsRoutes);
 app.use('/api/voice', checkAuth, voiceRoutes);
 //app.use('/api/text', textRoutes); //TO-DO
 app.use('/api/discord', checkAuth, discordRoutes);
-
-// Serve the frontend avec injection de BASE_PATH
-const fs = require('fs');
-
-app.get('/', (req, res) => {
-    const indexPath = path.join(__dirname, '../public/index.html');
-    let html = fs.readFileSync(indexPath, 'utf8');
-    const basePath = process.env.BASE_PATH || '';
-    html = html.replace('window.BASE_PATH = \'\';', `window.BASE_PATH = '${basePath}';`);
-    res.send(html);
-});
-
-app.get('/login.html', (req, res) => {
-    const loginPath = path.join(__dirname, '../public/login.html');
-    let html = fs.readFileSync(loginPath, 'utf8');
-    const basePath = process.env.BASE_PATH || '';
-    html = html.replace('window.BASE_PATH = \'\';', `window.BASE_PATH = '${basePath}';`);
-    res.send(html);
-});
 
 // Debug: lister les routes dashboard après montage (utile si 404 inattendus)
 function listDashboardRoutesSafe() {
@@ -122,6 +88,12 @@ function listDashboardRoutesSafe() {
         console.error('Erreur liste routes (safe):', err.message);
     }
 }
+listDashboardRoutesSafe();
+
+// Serve the frontend
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, '../public/index.html'));
+});
 
 // MongoDB connection
 mongoose.connect(process.env.MONGODB_URI)
@@ -153,7 +125,4 @@ app.listen(PORT, () => {
     console.log(`🚀 Server is running on port ${PORT}`);
     console.log(`🚀 Dashboard: http://localhost:${PORT}`);
     console.log('🚀 ========================================\n');
-    
-    // Liste les routes après le démarrage
-    setTimeout(() => listDashboardRoutesSafe(), 100);
 });

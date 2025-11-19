@@ -3,18 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Friturier</title>
-    <script>
-        // Configuration du chemin de base pour le reverse proxy
-        // Cette valeur sera remplacée par le serveur selon BASE_PATH env var
-        window.BASE_PATH = '';
-    </script>
+    <title>Login - Discord Voice Stats Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <script>
-        // Écrit la balise link CSS de manière synchrone pour éviter le flash
-        document.write('<link rel="stylesheet" href="' + (window.BASE_PATH || '') + '/style.css">');
-    </script>
+    <link rel="stylesheet" href="style.css">
     <style>
         .login-container {
             display: flex;
@@ -69,6 +61,10 @@
 <body>
     <div class="login-container">
         <div class="login-box">
+            <h1>
+                <i class="fas fa-headset"></i>
+                Voice Stats
+            </h1>
             <form class="login-form" id="loginForm">
                 <input type="password" id="password" placeholder="Mot de passe" required>
                 <button type="submit">Connexion</button>
@@ -102,14 +98,14 @@
             if (token) {
                 console.log('Vérification du token...');
                 // Vérifie si le token est valide
-                fetch(`${window.BASE_PATH}/api/user/stats?guildId=355051708503687168`, {
+                fetch('/api/user/stats?guildId=355051708503687168', {
                     headers: {
                         'Authorization': `Bearer ${token}`
                     }
                 }).then(response => {
                     console.log('Réponse de validation:', response.status);
                     if (response.ok) {
-                        window.location.href = `${window.BASE_PATH}/`;
+                        window.location.href = '/';
                     }
                 }).catch((error) => {
                     console.error('Erreur de validation:', error);
@@ -125,7 +121,7 @@
             
             try {
                 console.log('Envoi de la requête de connexion...');
-                const response = await fetch(`${window.BASE_PATH}/api/auth/login`, {
+                const response = await fetch('/api/auth/login', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -146,7 +142,7 @@
                         // Attend un peu plus longtemps pour s'assurer que le token est bien stocké
                         setTimeout(() => {
                             console.log('Redirection vers le dashboard...');
-                            window.location.href = `${window.BASE_PATH}/`;
+                            window.location.href = '/';
                         }, 500);
                     } else {
                         console.error('Échec du stockage du token');
